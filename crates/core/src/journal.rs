@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS actions (
     error  TEXT
 );
 CREATE INDEX IF NOT EXISTS actions_dst ON actions(dst);
+CREATE INDEX IF NOT EXISTS actions_src ON actions(src);
 ";
 
 const COLS: &str = "id, ts, rule, kind, src, dst, undone, error";
@@ -114,6 +115,20 @@ impl Journal {
         Ok(self.conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM actions WHERE src = ?1 AND undone = 2)",
             params![bytes(path)],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Já existe uma cópia bem-sucedida e não desfeita de `path` feita depois de `mtime`.
+    pub fn was_copied_since(&self, path: &Path, mtime: SystemTime) -> Result<bool> {
+        let since = mtime
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        Ok(self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM actions WHERE kind = 'copy' AND src = ?1 \
+             AND undone = 0 AND error IS NULL AND ts >= ?2)",
+            params![bytes(path), since],
             |r| r.get(0),
         )?)
     }
@@ -222,6 +237,26 @@ mod tests {
         j.mark_undone(b, true).unwrap();
         assert!(j.get(b).unwrap().unwrap().undone);
         assert_eq!(j.last_undoable().unwrap().unwrap().id, a);
+    }
+
+    #[test]
+    fn was_copied_since_checks_kind_src_and_time() {
+        let (_d, j) = open();
+        let src = Path::new("/a/x.pdf");
+        let t = |s| UNIX_EPOCH + Duration::from_secs(s);
+        assert!(!j.was_copied_since(src, t(0)).unwrap());
+        j.record("r", &done("/a/x.pdf", "/b/x.pdf")).unwrap(); // move, não conta
+        assert!(!j.was_copied_since(src, t(0)).unwrap());
+        let c = Done {
+            kind: Kind::Copy,
+            src: src.into(),
+            dst: Some("/b/x.pdf".into()),
+        };
+        let id = j.record("r", &c).unwrap();
+        assert!(j.was_copied_since(src, t(0)).unwrap());
+        assert!(!j.was_copied_since(src, t(now() as u64 + 100)).unwrap());
+        j.mark_undone(id, true).unwrap();
+        assert!(!j.was_copied_since(src, t(0)).unwrap());
     }
 
     #[test]

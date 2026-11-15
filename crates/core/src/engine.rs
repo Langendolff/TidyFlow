@@ -46,6 +46,9 @@ pub fn process(
         return Ok(Report::NoMatch);
     };
     let kind = actions::kind_of(&rule.action);
+    if kind == Kind::Copy && journal.was_copied_since(path, facts.modified)? {
+        return Ok(Report::NoMatch); // já copiado e a origem não mudou
+    }
     if dry_run {
         return Ok(Report::Planned {
             rule: rule.name.clone(),
@@ -210,6 +213,35 @@ mod tests {
         fs::write(&p, "novo").unwrap(); // arquivo novo, sem xattr
         let r = process(&e.cfg, &e.journal, &p, false, SystemTime::now()).unwrap();
         assert!(matches!(r, Report::Done { .. }), "{r:?}");
+    }
+
+    #[test]
+    fn copy_rule_copies_once_until_source_changes() {
+        let e = env();
+        let cfg = config::parse(&format!(
+            "[[rule]]\nname = \"bak\"\nwatch = [\"{}\"]\nwhen = {{ ext = [\"pdf\"] }}\naction = {{ copy = \"{}\" }}\n",
+            e.watch.display(),
+            e.out.display()
+        ))
+        .unwrap();
+        let p = e.watch.join("a.pdf");
+        fs::write(&p, "x").unwrap();
+        let now = SystemTime::now();
+        let r = process(&cfg, &e.journal, &p, false, now).unwrap();
+        assert!(matches!(r, Report::Done { .. }), "{r:?}");
+        let r = process(&cfg, &e.journal, &p, false, now).unwrap();
+        assert!(matches!(r, Report::NoMatch), "{r:?}");
+        assert_eq!(fs::read_dir(&e.out).unwrap().count(), 1);
+        // Download novo no mesmo caminho: mtime mais recente.
+        fs::File::options()
+            .write(true)
+            .open(&p)
+            .unwrap()
+            .set_modified(now + std::time::Duration::from_secs(60))
+            .unwrap();
+        let r = process(&cfg, &e.journal, &p, false, now).unwrap();
+        assert!(matches!(r, Report::Done { .. }), "{r:?}");
+        assert_eq!(fs::read_dir(&e.out).unwrap().count(), 2);
     }
 
     #[test]
