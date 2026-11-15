@@ -100,16 +100,19 @@ impl Journal {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    pub fn mark_undone(&self, id: i64) -> Result<()> {
-        self.conn
-            .execute("UPDATE actions SET undone = 1 WHERE id = ?1", [id])?;
+    /// `marked`: a marca xattr foi gravada (undone = 1); senão undone = 2 e o journal é o fallback.
+    pub fn mark_undone(&self, id: i64, marked: bool) -> Result<()> {
+        self.conn.execute(
+            "UPDATE actions SET undone = ?2 WHERE id = ?1",
+            params![id, if marked { 1 } else { 2 }],
+        )?;
         Ok(())
     }
 
-    /// Algum registro desfeito tem este caminho como origem (fallback quando o xattr falha).
+    /// Algum undo sem marca xattr (undone = 2) tem este caminho como origem.
     pub fn was_undone_src(&self, path: &Path) -> Result<bool> {
         Ok(self.conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM actions WHERE src = ?1 AND undone = 1)",
+            "SELECT EXISTS(SELECT 1 FROM actions WHERE src = ?1 AND undone = 2)",
             params![bytes(path)],
             |r| r.get(0),
         )?)
@@ -216,7 +219,7 @@ mod tests {
         j.record_error("r", Kind::Move, Path::new("/e"), "sem permissão")
             .unwrap();
         assert_eq!(j.last_undoable().unwrap().unwrap().id, b);
-        j.mark_undone(b).unwrap();
+        j.mark_undone(b, true).unwrap();
         assert!(j.get(b).unwrap().unwrap().undone);
         assert_eq!(j.last_undoable().unwrap().unwrap().id, a);
     }
@@ -236,7 +239,11 @@ mod tests {
         let (_d, j) = open();
         let id = j.record("r", &done("/a/x", "/b/x")).unwrap();
         assert!(!j.was_undone_src(Path::new("/a/x")).unwrap());
-        j.mark_undone(id).unwrap();
+        j.mark_undone(id, true).unwrap();
+        assert!(!j.was_undone_src(Path::new("/a/x")).unwrap());
+        assert!(j.get(id).unwrap().unwrap().undone);
+        j.mark_undone(id, false).unwrap();
+        assert!(j.get(id).unwrap().unwrap().undone); // 2 também lê como true
         assert!(j.was_undone_src(Path::new("/a/x")).unwrap());
         assert!(!j.was_undone_src(Path::new("/b/x")).unwrap());
     }
@@ -259,7 +266,7 @@ mod tests {
         let a = Journal::open(&path).unwrap();
         let b = Journal::open(&path).unwrap();
         let id = a.record("r", &done("/a", "/b")).unwrap();
-        b.mark_undone(id).unwrap();
+        b.mark_undone(id, true).unwrap();
         assert!(a.get(id).unwrap().unwrap().undone);
     }
 }

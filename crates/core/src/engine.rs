@@ -111,8 +111,8 @@ pub fn undo(journal: &Journal, id: Option<i64>) -> Result<Entry> {
     if entry.error.is_some() {
         return Err(format!("ação #{} falhou, não há o que desfazer", entry.id).into());
     }
-    actions::undo(entry.kind, &entry.src, entry.dst.as_deref())?;
-    journal.mark_undone(entry.id)?;
+    let marked = actions::undo(entry.kind, &entry.src, entry.dst.as_deref())?;
+    journal.mark_undone(entry.id, marked)?;
     Ok(entry)
 }
 
@@ -182,16 +182,34 @@ mod tests {
     }
 
     #[test]
-    fn undone_file_is_left_alone_without_xattr() {
+    fn undone_file_is_left_alone_when_xattr_failed() {
+        let e = env();
+        let p = e.watch.join("a.pdf");
+        fs::write(&p, "x").unwrap();
+        let Report::Done { id, done, .. } =
+            process(&e.cfg, &e.journal, &p, false, SystemTime::now()).unwrap()
+        else {
+            panic!("esperava Done");
+        };
+        // Simula undo em fs sem xattr: restaura à mão e registra sem marca.
+        fs::rename(done.dst.unwrap(), &p).unwrap();
+        e.journal.mark_undone(id, false).unwrap();
+        let r = process(&e.cfg, &e.journal, &p, false, SystemTime::now()).unwrap();
+        assert!(matches!(r, Report::NoMatch), "{r:?}");
+        assert!(p.exists() && !e.out.join("a.pdf").exists());
+    }
+
+    #[test]
+    fn new_file_at_same_path_after_marked_undo_is_processed() {
         let e = env();
         let p = e.watch.join("a.pdf");
         fs::write(&p, "x").unwrap();
         process(&e.cfg, &e.journal, &p, false, SystemTime::now()).unwrap();
         undo(&e.journal, None).unwrap();
-        let _ = xattr::remove(&p, crate::facts::KEEP_XATTR);
+        fs::remove_file(&p).unwrap();
+        fs::write(&p, "novo").unwrap(); // arquivo novo, sem xattr
         let r = process(&e.cfg, &e.journal, &p, false, SystemTime::now()).unwrap();
-        assert!(matches!(r, Report::NoMatch), "{r:?}");
-        assert!(p.exists() && !e.out.join("a.pdf").exists());
+        assert!(matches!(r, Report::Done { .. }), "{r:?}");
     }
 
     #[test]

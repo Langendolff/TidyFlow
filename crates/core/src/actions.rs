@@ -81,11 +81,11 @@ pub fn execute(a: &Action, f: &Facts) -> io::Result<Option<Done>> {
     }))
 }
 
-pub fn undo(kind: Kind, src: &Path, dst: Option<&Path>) -> io::Result<()> {
+/// Devolve se a marca `KEEP_XATTR` foi gravada no arquivo restaurado.
+pub fn undo(kind: Kind, src: &Path, dst: Option<&Path>) -> io::Result<bool> {
     if kind == Kind::Trash {
         restore_from_trash(src)?;
-        keep(src);
-        return Ok(());
+        return Ok(keep(src));
     }
     let dst = dst.ok_or_else(|| io::Error::other("ação sem destino registrado"))?;
     if !dst.exists() {
@@ -97,22 +97,20 @@ pub fn undo(kind: Kind, src: &Path, dst: Option<&Path>) -> io::Result<()> {
     if kind == Kind::Copy {
         // A cópia é redundante, mas vai para a lixeira: nunca apagar de vez.
         trash::delete(dst).map_err(|e| io::Error::other(e.to_string()))?;
-        keep(src);
-        return Ok(());
+        return Ok(keep(src));
     }
     let target = free_path(src);
     if let Some(dir) = target.parent() {
         fs::create_dir_all(dir)?;
     }
     move_file(dst, &target)?;
-    keep(&target);
-    Ok(())
+    Ok(keep(&target))
 }
 
 /// Marca o arquivo restaurado para o engine não reorganizá-lo.
-fn keep(path: &Path) {
-    // Falha (fs sem suporte a xattr) é ignorada: o undo já foi feito.
-    let _ = xattr::set(path, crate::facts::KEEP_XATTR, b"1");
+fn keep(path: &Path) -> bool {
+    // Falha (fs sem xattr, arquivo somente leitura) não desfaz o undo; o journal cobre.
+    xattr::set(path, crate::facts::KEEP_XATTR, b"1").is_ok()
 }
 
 fn restore_from_trash(src: &Path) -> io::Result<()> {
