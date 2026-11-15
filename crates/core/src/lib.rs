@@ -3,6 +3,7 @@ pub mod config;
 pub mod facts;
 pub mod journal;
 pub mod rules;
+pub mod stability;
 pub mod template;
 pub mod units;
 
