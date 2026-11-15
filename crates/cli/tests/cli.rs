@@ -29,6 +29,17 @@ fn env() -> Env {
     Env { d, watch, out, cfg }
 }
 
+/// Varreduras ignoram arquivos com menos de 10s; envelhece o mtime.
+fn write_old(p: &std::path::Path) {
+    fs::write(p, "x").unwrap();
+    fs::File::options()
+        .write(true)
+        .open(p)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(3600))
+        .unwrap();
+}
+
 fn cmd(e: &Env) -> Command {
     let mut c = Command::new(env!("CARGO_BIN_EXE_tidyflow"));
     c.env("XDG_DATA_HOME", e.d.path())
@@ -48,7 +59,7 @@ fn stdout(o: &Output) -> String {
 #[test]
 fn run_then_undo() {
     let e = env();
-    fs::write(e.watch.join("a.pdf"), "x").unwrap();
+    write_old(&e.watch.join("a.pdf"));
     let o = run(&e, &["run"]);
     assert!(o.status.success(), "{o:?}");
     assert!(e.out.join("a.pdf").exists());
@@ -64,7 +75,7 @@ fn run_then_undo() {
 #[test]
 fn dry_run_changes_nothing() {
     let e = env();
-    fs::write(e.watch.join("a.pdf"), "x").unwrap();
+    write_old(&e.watch.join("a.pdf"));
     let o = run(&e, &["run", "--dry-run"]);
     assert!(stdout(&o).contains("a.pdf"));
     assert!(e.watch.join("a.pdf").exists());
@@ -96,7 +107,7 @@ fn daemon_organizes_new_and_existing_files() {
         time::{Duration, Instant},
     };
     let e = env();
-    fs::write(e.watch.join("antes.pdf"), "x").unwrap(); // varredura inicial
+    write_old(&e.watch.join("antes.pdf")); // varredura inicial
     let mut child = cmd(&e).arg("daemon").spawn().unwrap();
     thread::sleep(Duration::from_millis(500));
     fs::write(e.watch.join("depois.pdf"), "x").unwrap(); // evento inotify

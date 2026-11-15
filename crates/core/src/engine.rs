@@ -9,8 +9,11 @@ use crate::{
 use std::{
     fs,
     path::{Path, PathBuf},
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
+
+/// Arquivos mais novos que isso ficam para o evento CLOSE_WRITE (que espera estabilizar).
+const SCAN_MIN_AGE: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
 pub enum Report {
@@ -96,11 +99,21 @@ pub fn scan(
             if !path.is_file() || stability::is_ignored_name(&entry.file_name().to_string_lossy()) {
                 continue;
             }
+            if fresh(&path, now) {
+                continue;
+            }
             let report = process(cfg, journal, &path, dry_run, now);
             out.push((path, report));
         }
     }
     out
+}
+
+fn fresh(path: &Path, now: SystemTime) -> bool {
+    let age = fs::metadata(path)
+        .and_then(|m| m.modified())
+        .map(|m| now.duration_since(m).unwrap_or_default());
+    age.is_ok_and(|a| a < SCAN_MIN_AGE)
 }
 
 pub fn undo(journal: &Journal, id: Option<i64>) -> Result<Entry> {
@@ -291,9 +304,28 @@ mod tests {
         fs::write(e.watch.join("b.pdf.part"), "x").unwrap();
         fs::write(e.watch.join(".c.pdf"), "x").unwrap();
         fs::create_dir(e.watch.join("d.pdf")).unwrap();
-        let results = scan(&e.cfg, &e.journal, false, SystemTime::now());
+        let results = scan(
+            &e.cfg,
+            &e.journal,
+            false,
+            SystemTime::now() + SCAN_MIN_AGE * 2,
+        );
         assert_eq!(results.len(), 1);
         assert!(e.out.join("a.pdf").exists());
+    }
+
+    #[test]
+    fn scan_skips_fresh_files() {
+        let e = env();
+        let p = e.watch.join("a.pdf");
+        fs::write(&p, "x").unwrap();
+        let now = SystemTime::now();
+        assert!(scan(&e.cfg, &e.journal, false, now).is_empty());
+        assert!(p.exists());
+        assert_eq!(
+            scan(&e.cfg, &e.journal, false, now + SCAN_MIN_AGE * 2).len(),
+            1
+        );
     }
 
     #[test]

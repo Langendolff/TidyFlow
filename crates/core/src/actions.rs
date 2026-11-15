@@ -155,8 +155,22 @@ fn move_file(src: &Path, dst: &Path) -> io::Result<()> {
 }
 
 pub(crate) fn move_via_copy(src: &Path, dst: &Path) -> io::Result<()> {
+    let snapshot = snapshot(src)?;
     copy_verified(src, dst)?;
+    if !unchanged(src, snapshot)? {
+        let _ = fs::remove_file(dst); // só a nossa cópia
+        return Err(io::Error::other("arquivo de origem mudou durante a cópia"));
+    }
     fs::remove_file(src)
+}
+
+fn snapshot(src: &Path) -> io::Result<(u64, std::time::SystemTime)> {
+    let m = fs::metadata(src)?;
+    Ok((m.len(), m.modified()?))
+}
+
+fn unchanged(src: &Path, snap: (u64, std::time::SystemTime)) -> io::Result<bool> {
+    Ok(snapshot(src)? == snap)
 }
 
 fn copy_verified(src: &Path, dst: &Path) -> io::Result<()> {
@@ -301,6 +315,25 @@ mod tests {
             b"http://x"
         );
         assert_eq!(fs::read(&dst).unwrap(), vec![7u8; 10_000]);
+    }
+
+    #[test]
+    fn unchanged_detects_len_and_mtime_changes() {
+        let d = tempfile::tempdir().unwrap();
+        let src = d.path().join("a.bin");
+        fs::write(&src, "x").unwrap();
+        let snap = snapshot(&src).unwrap();
+        assert!(unchanged(&src, snap).unwrap());
+        fs::File::options()
+            .write(true)
+            .open(&src)
+            .unwrap()
+            .set_modified(snap.1 + std::time::Duration::from_secs(5))
+            .unwrap();
+        assert!(!unchanged(&src, snap).unwrap());
+        let snap = snapshot(&src).unwrap();
+        fs::write(&src, "xyz").unwrap();
+        assert!(!unchanged(&src, snap).unwrap());
     }
 
     #[test]
