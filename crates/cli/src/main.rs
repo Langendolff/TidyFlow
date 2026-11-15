@@ -121,6 +121,15 @@ fn run(cmd: Cmd, config_path: &Path) -> tidyflow_core::Result<()> {
                     f.mime, f.ext, f.size
                 );
                 println!("origem: {}", f.origin_url.as_deref().unwrap_or("(nenhuma)"));
+                let journal = Journal::open(&journal::default_path())?;
+                if f.keep || journal.was_undone_src(&file)? {
+                    println!(
+                        "marcado como desfeito: o TidyFlow não vai mexer neste arquivo (remova com: setfattr -x user.tidyflow.keep <arquivo>)"
+                    );
+                    println!(
+                        "(a marca pelo histórico só vale enquanto o histórico tiver essa entrada)"
+                    );
+                }
                 match rules::first_match(&cfg.rules, &f, SystemTime::now()) {
                     Some(r) => println!(
                         "regra: {} → {}",

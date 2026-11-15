@@ -106,6 +106,15 @@ impl Journal {
         Ok(())
     }
 
+    /// Algum registro desfeito tem este caminho como origem (fallback quando o xattr falha).
+    pub fn was_undone_src(&self, path: &Path) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM actions WHERE src = ?1 AND undone = 1)",
+            params![bytes(path)],
+            |r| r.get(0),
+        )?)
+    }
+
     pub fn is_dst_since(&self, path: &Path, since: SystemTime) -> Result<bool> {
         let since = since
             .duration_since(UNIX_EPOCH)
@@ -220,6 +229,16 @@ mod tests {
         }
         let ids: Vec<i64> = j.recent(3).unwrap().iter().map(|e| e.id).collect();
         assert_eq!(ids, vec![5, 4, 3]);
+    }
+
+    #[test]
+    fn was_undone_src_only_after_undo() {
+        let (_d, j) = open();
+        let id = j.record("r", &done("/a/x", "/b/x")).unwrap();
+        assert!(!j.was_undone_src(Path::new("/a/x")).unwrap());
+        j.mark_undone(id).unwrap();
+        assert!(j.was_undone_src(Path::new("/a/x")).unwrap());
+        assert!(!j.was_undone_src(Path::new("/b/x")).unwrap());
     }
 
     #[test]

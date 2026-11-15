@@ -39,7 +39,7 @@ pub fn process(
     now: SystemTime,
 ) -> Result<Report> {
     let facts = Facts::read(path)?;
-    if facts.keep {
+    if facts.keep || journal.was_undone_src(path)? {
         return Ok(Report::NoMatch); // restaurado por undo
     }
     let Some(rule) = rules::first_match(&cfg.rules, &facts, now) else {
@@ -178,6 +178,19 @@ mod tests {
             let r = process(&e.cfg, &e.journal, &p, dry, SystemTime::now()).unwrap();
             assert!(matches!(r, Report::NoMatch), "{r:?}");
         }
+        assert!(p.exists() && !e.out.join("a.pdf").exists());
+    }
+
+    #[test]
+    fn undone_file_is_left_alone_without_xattr() {
+        let e = env();
+        let p = e.watch.join("a.pdf");
+        fs::write(&p, "x").unwrap();
+        process(&e.cfg, &e.journal, &p, false, SystemTime::now()).unwrap();
+        undo(&e.journal, None).unwrap();
+        let _ = xattr::remove(&p, crate::facts::KEEP_XATTR);
+        let r = process(&e.cfg, &e.journal, &p, false, SystemTime::now()).unwrap();
+        assert!(matches!(r, Report::NoMatch), "{r:?}");
         assert!(p.exists() && !e.out.join("a.pdf").exists());
     }
 
