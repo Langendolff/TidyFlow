@@ -82,6 +82,16 @@ Também:
 - Desfazer é definitivo para aquele arquivo: o undo grava o xattr
   `user.tidyflow.keep` no arquivo restaurado, e o engine ignora arquivos com essa
   marca (também nas varreduras). Um download novo com o mesmo nome não tem a marca.
+  Se o xattr não puder ser gravado (arquivo somente leitura, vfat, NFS), o journal
+  registra o undo com `undone=2` e o engine ignora aquele caminho enquanto a
+  entrada existir no histórico. Nesse caso, um download novo no mesmo caminho
+  também é ignorado.
+- Cópia não se repete: um arquivo já copiado e não modificado desde a cópia
+  (`ts` da entrada `copy` ≥ mtime) não é copiado de novo nas varreduras.
+- Varreduras (inicial, por idade, `tidyflow run`) ignoram arquivos modificados há
+  menos de 10s; esses arquivos ainda podem estar sendo escritos e são tratados
+  pelo evento `CLOSE_WRITE`. A cópia entre discos confere de novo que a origem não
+  mudou antes de removê-la.
 - Pasta `watch` inexistente não é erro: `check` mostra um aviso e o daemon tenta
   monitorá-la a cada 60s; quando ela volta, roda uma varredura.
 
@@ -144,7 +154,7 @@ o pior caso é um movimento que não pode ser desfeito.
 | Sem permissão ou disco cheio | Não move; erro no journal e notificação; arquivo fica onde estava |
 | Cópia entre discos falha | Remove a cópia parcial; origem intacta |
 | Undo com `dst` ausente | Avisa e não marca como desfeito |
-| Undo com `src` ocupado | Restaura com sufixo `(1)` |
+| Undo com `src` ocupado | Restaura com sufixo `(1)`. Exceção: o undo de `trash` falha com uma mensagem clara e o original continua na lixeira |
 | Watch cai | Log, nova tentativa a cada 60s, notifica uma vez |
 | SQLite travado | `busy_timeout` 5s; se ainda falhar, a ação já executada fica sem registro (log em `warn`), como no pior caso acima |
 
