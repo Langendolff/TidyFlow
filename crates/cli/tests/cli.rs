@@ -112,3 +112,49 @@ fn daemon_organizes_new_and_existing_files() {
         assert!(p.exists(), "{} não chegou", p.display());
     }
 }
+
+fn wait_for(deadline_secs: u64, f: impl Fn() -> bool) {
+    let end = std::time::Instant::now() + std::time::Duration::from_secs(deadline_secs);
+    while !f() && std::time::Instant::now() < end {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
+#[test]
+fn daemon_does_not_redo_undone_file() {
+    let e = env();
+    let mut child = cmd(&e).arg("daemon").spawn().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    fs::write(e.watch.join("a.pdf"), "x").unwrap();
+    wait_for(10, || e.out.join("a.pdf").exists());
+    let o = run(&e, &["undo"]);
+    std::thread::sleep(std::time::Duration::from_secs(4));
+    child.kill().unwrap();
+    child.wait().unwrap();
+    assert!(o.status.success(), "{o:?}");
+    assert!(e.watch.join("a.pdf").exists(), "a.pdf não voltou");
+    assert!(!e.out.join("a.pdf").exists(), "daemon refez a ação");
+}
+
+#[test]
+fn daemon_organizes_file_renamed_into_watch_dir() {
+    let e = env();
+    let mut child = cmd(&e).arg("daemon").spawn().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let outside = e.d.path().join("b.pdf");
+    fs::write(&outside, "x").unwrap();
+    fs::rename(&outside, e.watch.join("b.pdf")).unwrap();
+    wait_for(10, || e.out.join("b.pdf").exists());
+    child.kill().unwrap();
+    child.wait().unwrap();
+    assert!(e.out.join("b.pdf").exists());
+}
+
+#[test]
+fn check_warns_about_missing_watch_dir() {
+    let e = env();
+    fs::remove_dir(&e.watch).unwrap();
+    let o = run(&e, &["check"]);
+    assert!(o.status.success(), "{o:?}");
+    assert!(stdout(&o).contains("aviso"), "{}", stdout(&o));
+}

@@ -20,7 +20,7 @@ use tracing::{debug, error, info, warn};
 const RETRY: Duration = Duration::from_secs(60);
 const QUIET: Duration = Duration::from_secs(2);
 const MAX_WAIT: Duration = Duration::from_secs(60);
-const LOOP_GUARD_SECS: i64 = 5;
+const LOOP_GUARD_SECS: u64 = 5;
 
 struct Daemon {
     config_path: PathBuf,
@@ -30,6 +30,7 @@ struct Daemon {
     watcher: RecommendedWatcher,
     watched: Vec<PathBuf>,
     missing: Vec<PathBuf>,
+    next_scan: Instant,
 }
 
 pub fn run(config_path: &Path, journal_path: &Path) -> tidyflow_core::Result<()> {
@@ -37,7 +38,10 @@ pub fn run(config_path: &Path, journal_path: &Path) -> tidyflow_core::Result<()>
     let cfg = config::load(&config_path)?;
     let journal = Journal::open(journal_path)?;
     let (tx, rx) = mpsc::channel();
-    let mut watcher = notify::recommended_watcher(tx)?;
+    // Carimba o evento na hora em que o watcher o emite, não quando sai da fila.
+    let mut watcher = notify::recommended_watcher(move |res| {
+        let _ = tx.send((SystemTime::now(), res));
+    })?;
     // Observa a pasta, não o arquivo: editores salvam via rename e trocam o inode.
     let config_dir = config_path.parent().ok_or("caminho de config inválido")?;
     watcher.watch(config_dir, RecursiveMode::NonRecursive)?;
@@ -50,34 +54,37 @@ pub fn run(config_path: &Path, journal_path: &Path) -> tidyflow_core::Result<()>
         watcher,
         watched: Vec::new(),
         missing: Vec::new(),
+        next_scan: Instant::now(),
     };
     d.rewatch();
     d.scan();
     info!("daemon iniciado com {} regra(s)", d.cfg.rules.len());
 
-    let mut next_scan = Instant::now() + d.cfg.age_scan_interval;
     let mut next_retry = Instant::now() + RETRY;
     loop {
         let deadline = if d.missing.is_empty() {
-            next_scan
+            d.next_scan
         } else {
-            next_scan.min(next_retry)
+            d.next_scan.min(next_retry)
         };
         match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-            Ok(Ok(event)) => d.on_event(event),
-            Ok(Err(e)) => warn!("erro do watcher: {e}"),
-            Err(RecvTimeoutError::Timeout) => {
-                let now = Instant::now();
-                if !d.missing.is_empty() && now >= next_retry {
-                    d.rewatch();
-                    next_retry = now + RETRY;
-                }
-                if now >= next_scan {
-                    d.scan();
-                    next_scan = now + d.cfg.age_scan_interval;
-                }
-            }
+            Ok((received, Ok(event))) => d.on_event(event, received),
+            Ok((_, Err(e))) => warn!("erro do watcher: {e}"),
+            Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => return Err("watcher encerrado".into()),
+        }
+        // Depois de qualquer resultado, para um fluxo constante de eventos não matar os timers.
+        let now = Instant::now();
+        if !d.missing.is_empty() && now >= next_retry {
+            next_retry = now + RETRY;
+            let before = d.missing.len();
+            d.rewatch();
+            if d.missing.len() < before {
+                d.scan();
+            }
+        }
+        if now >= d.next_scan {
+            d.scan();
         }
     }
 }
@@ -110,7 +117,7 @@ impl Daemon {
         }
     }
 
-    fn on_event(&mut self, event: Event) {
+    fn on_event(&mut self, event: Event, received: SystemTime) {
         if matches!(event.kind, EventKind::Remove(_)) {
             for p in &event.paths {
                 if let Some(i) = self.watched.iter().position(|w| w == p) {
@@ -131,11 +138,11 @@ impl Daemon {
         if *path == self.config_path {
             self.reload();
         } else {
-            self.handle(path);
+            self.handle(path, received);
         }
     }
 
-    fn handle(&self, path: &Path) {
+    fn handle(&self, path: &Path, received: SystemTime) {
         let in_watched = path
             .parent()
             .is_some_and(|p| self.watched.iter().any(|w| w == p));
@@ -143,7 +150,10 @@ impl Daemon {
         if !in_watched || stability::is_ignored_name(&name) {
             return;
         }
-        match self.journal.is_recent_dst(path, LOOP_GUARD_SECS) {
+        match self
+            .journal
+            .is_dst_since(path, received - Duration::from_secs(LOOP_GUARD_SECS))
+        {
             Ok(true) => return debug!("ignorando evento gerado por nós: {}", path.display()),
             Ok(false) => {}
             Err(e) => warn!("journal: {e}"),
@@ -154,26 +164,43 @@ impl Daemon {
             return debug!("{} sumiu ou não estabilizou", path.display());
         }
         let result = engine::process(&self.cfg, &self.journal, path, false, SystemTime::now());
-        self.report(path, result);
+        self.report(path, result, true);
     }
 
-    fn scan(&self) {
+    fn scan(&mut self) {
+        self.next_scan = Instant::now() + self.cfg.age_scan_interval;
+        let (mut done, mut failed) = (0, 0);
         for (path, result) in engine::scan(&self.cfg, &self.journal, false, SystemTime::now()) {
-            self.report(&path, result);
+            match &result {
+                Ok(Report::Done { .. }) => done += 1,
+                Ok(Report::Failed { .. }) => failed += 1,
+                _ => {}
+            }
+            self.report(&path, result, false);
+        }
+        if self.cfg.notify && (done > 0 || failed > 0) {
+            let mut body = format!("{done} arquivo(s) organizado(s)");
+            if failed > 0 {
+                body += &format!(", {failed} falha(s), veja tidyflow history");
+            }
+            desktop::summary(&body);
         }
     }
 
-    fn report(&self, path: &Path, result: tidyflow_core::Result<Report>) {
+    /// `single`: evento do watcher (notificação com Desfazer); senão, varredura (só resumo).
+    fn report(&self, path: &Path, result: tidyflow_core::Result<Report>, single: bool) {
         match result {
             Ok(Report::Done { id, rule, done }) => {
                 info!("#{id} [{rule}] {}", describe(&done));
-                if self.cfg.notify {
+                if single && self.cfg.notify {
                     desktop::organized(self.journal_path.clone(), id, describe(&done));
                 }
             }
             Ok(Report::Failed { rule, error }) => {
                 warn!("[{rule}] falhou em {}: {error}", path.display());
-                self.alert(&format!("{}: {error}", path.display()));
+                if single {
+                    self.alert(&format!("{}: {error}", path.display()));
+                }
             }
             Ok(_) => {}
             Err(e) if !path.exists() => debug!("{} sumiu antes da ação: {e}", path.display()),
@@ -185,6 +212,7 @@ impl Daemon {
         match config::load(&self.config_path) {
             Ok(cfg) => {
                 self.cfg = cfg;
+                self.next_scan = Instant::now() + self.cfg.age_scan_interval;
                 self.rewatch();
                 info!("config recarregado: {} regra(s)", self.cfg.rules.len());
             }

@@ -39,3 +39,14 @@ pub fn error(body: &str) {
         warn!("notificação falhou: {e}");
     }
 }
+
+pub fn summary(body: &str) {
+    if let Err(e) = Notification::new()
+        .appname("TidyFlow")
+        .summary("TidyFlow")
+        .body(body)
+        .show()
+    {
+        warn!("notificação falhou: {e}");
+    }
+}

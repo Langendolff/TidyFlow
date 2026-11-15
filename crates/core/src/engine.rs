@@ -39,6 +39,9 @@ pub fn process(
     now: SystemTime,
 ) -> Result<Report> {
     let facts = Facts::read(path)?;
+    if facts.keep {
+        return Ok(Report::NoMatch); // restaurado por undo
+    }
     let Some(rule) = rules::first_match(&cfg.rules, &facts, now) else {
         return Ok(Report::NoMatch);
     };
@@ -161,6 +164,21 @@ mod tests {
         assert_eq!(rule, "pdfs");
         assert_eq!(done.dst.as_deref(), Some(e.out.join("a.pdf").as_path()));
         assert_eq!(e.journal.get(id).unwrap().unwrap().src, p);
+    }
+
+    #[test]
+    fn undone_file_is_left_alone() {
+        let e = env();
+        let p = e.watch.join("a.pdf");
+        fs::write(&p, "x").unwrap();
+        process(&e.cfg, &e.journal, &p, false, SystemTime::now()).unwrap();
+        undo(&e.journal, None).unwrap();
+        assert!(p.exists());
+        for dry in [false, true] {
+            let r = process(&e.cfg, &e.journal, &p, dry, SystemTime::now()).unwrap();
+            assert!(matches!(r, Report::NoMatch), "{r:?}");
+        }
+        assert!(p.exists() && !e.out.join("a.pdf").exists());
     }
 
     #[test]

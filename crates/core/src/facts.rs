@@ -7,6 +7,9 @@ use std::{
 /// Gravado por Chromium/Chrome, `wget --xattr` e `curl --xattr`.
 pub const ORIGIN_XATTR: &str = "user.xdg.origin.url";
 
+/// Gravado pelo undo: o engine não reorganiza arquivos com esta marca.
+pub const KEEP_XATTR: &str = "user.tidyflow.keep";
+
 #[derive(Debug, Clone)]
 pub struct Facts {
     pub path: PathBuf,
@@ -17,6 +20,7 @@ pub struct Facts {
     pub size: u64,
     pub modified: SystemTime,
     pub origin_url: Option<String>,
+    pub keep: bool,
 }
 
 impl Facts {
@@ -43,6 +47,7 @@ impl Facts {
             size: meta.len(),
             modified: meta.modified()?,
             origin_url,
+            keep: xattr::get(path, KEEP_XATTR).is_ok_and(|v| v.is_some()),
         })
     }
 
@@ -73,6 +78,7 @@ impl Facts {
             size: 0,
             modified: std::time::UNIX_EPOCH + Duration::from_secs(1_781_524_800), // 2026-06-15 12:00 UTC
             origin_url: None,
+            keep: false,
         }
     }
 }

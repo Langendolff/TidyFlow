@@ -85,6 +85,22 @@ pub fn load(path: &Path) -> Result<Config, ConfigError> {
     parse(&src)
 }
 
+impl Config {
+    /// Pastas `watch` que não existem (únicas, ordenadas).
+    pub fn missing_watch_dirs(&self) -> Vec<&Path> {
+        let mut v: Vec<&Path> = self
+            .rules
+            .iter()
+            .flat_map(|r| &r.watch)
+            .map(PathBuf::as_path)
+            .filter(|p| !p.is_dir())
+            .collect();
+        v.sort();
+        v.dedup();
+        v
+    }
+}
+
 pub fn parse(src: &str) -> Result<Config, ConfigError> {
     let raw: RawConfig = toml::from_str(src).map_err(|e| ConfigError {
         line: e.span().map(|s| line_of(src, s.start)),
@@ -101,6 +117,12 @@ pub fn parse(src: &str) -> Result<Config, ConfigError> {
             message,
         })?
         .unwrap_or(Duration::from_secs(3600));
+    if age_scan_interval.is_zero() {
+        return Err(ConfigError {
+            line: None,
+            message: "age_scan_interval precisa ser maior que zero".into(),
+        });
+    }
     let rules = raw
         .rules
         .into_iter()
@@ -150,15 +172,8 @@ fn compile_rule(r: RawRule) -> Result<Rule, String> {
     let watch = r
         .watch
         .iter()
-        .map(|w| {
-            let p = PathBuf::from(expand_tilde(w));
-            if p.is_dir() {
-                Ok(p)
-            } else {
-                Err(err(format!("pasta `watch` não existe: {}", p.display())))
-            }
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+        .map(|w| PathBuf::from(expand_tilde(w)))
+        .collect::<Vec<_>>();
 
     let w = r.when;
     let when = Conditions {
@@ -344,13 +359,32 @@ mod tests {
             rule(r#"{ ext = ["pdf"] }"#, r#"{ trash = true, move = "/x" }"#),
             rule(r#"{ name_regex = "(" }"#, "{ trash = true }"),
             rule(r#"{ size_gt = "10XB" }"#, "{ trash = true }"),
-            "[[rule]]\nname = \"r\"\nwatch = [\"/nao/existe/tidyflow\"]\nwhen = { ext = [\"pdf\"] }\naction = { trash = true }\n".to_string(),
         ];
         for src in cases {
             let err = parse(&src).unwrap_err();
             assert!(err.message.contains("regra \"r\""), "{err}");
             assert_eq!(err.line, Some(1), "{err}");
         }
+    }
+
+    #[test]
+    fn zero_interval_is_rejected() {
+        let src = format!(
+            "[settings]\nage_scan_interval = \"0s\"\n\n{}",
+            rule(r#"{ ext = ["pdf"] }"#, "{ trash = true }")
+        );
+        let err = parse(&src).unwrap_err();
+        assert!(err.message.contains("maior que zero"), "{err}");
+    }
+
+    #[test]
+    fn missing_watch_dirs_are_listed_not_errors() {
+        let src = "[[rule]]\nname = \"r\"\nwatch = [\"/nao/existe/b\", \"/nao/existe/a\", \"/nao/existe/b\", \"/tmp\"]\nwhen = { ext = [\"pdf\"] }\naction = { trash = true }\n";
+        let cfg = parse(src).unwrap();
+        assert_eq!(
+            cfg.missing_watch_dirs(),
+            vec![Path::new("/nao/existe/a"), Path::new("/nao/existe/b")]
+        );
     }
 
     #[test]

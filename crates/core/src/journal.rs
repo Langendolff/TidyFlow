@@ -106,10 +106,14 @@ impl Journal {
         Ok(())
     }
 
-    pub fn is_recent_dst(&self, path: &Path, within_secs: i64) -> Result<bool> {
+    pub fn is_dst_since(&self, path: &Path, since: SystemTime) -> Result<bool> {
+        let since = since
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
         Ok(self.conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM actions WHERE dst = ?1 AND ts >= ?2)",
-            params![bytes(path), now() - within_secs],
+            params![bytes(path), since],
             |r| r.get(0),
         )?)
     }
@@ -222,8 +226,11 @@ mod tests {
     fn recent_dst() {
         let (_d, j) = open();
         j.record("r", &done("/a", "/b/x")).unwrap();
-        assert!(j.is_recent_dst(Path::new("/b/x"), 5).unwrap());
-        assert!(!j.is_recent_dst(Path::new("/b/y"), 5).unwrap());
+        let since = SystemTime::now() - std::time::Duration::from_secs(5);
+        assert!(j.is_dst_since(Path::new("/b/x"), since).unwrap());
+        assert!(!j.is_dst_since(Path::new("/b/y"), since).unwrap());
+        let future = SystemTime::now() + std::time::Duration::from_secs(60);
+        assert!(!j.is_dst_since(Path::new("/b/x"), future).unwrap());
     }
 
     #[test]
