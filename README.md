@@ -16,6 +16,7 @@ mkdir -p ~/.config/tidyflow
 cp config.example.toml ~/.config/tidyflow/config.toml
 tidyflow check                       # valida o config
 tidyflow run --dry-run               # mostra o que seria feito
+mkdir -p ~/.config/systemd/user
 cp contrib/tidyflow.service ~/.config/systemd/user/
 systemctl --user enable --now tidyflow
 journalctl --user -u tidyflow -f     # logs
