@@ -171,7 +171,10 @@ pub(crate) fn move_via_copy(src: &Path, dst: &Path) -> io::Result<()> {
         return Err(io::Error::other("arquivo de origem mudou durante a cópia"));
     }
     fs::remove_file(src).inspect_err(|_| {
-        let _ = fs::remove_file(dst); // a origem continua intacta; não deixar duplicata
+        // Só apaga a cópia se a origem continua lá; se ela sumiu, a cópia é o que restou.
+        if src.exists() {
+            let _ = fs::remove_file(dst);
+        }
     })
 }
 
