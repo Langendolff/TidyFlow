@@ -161,7 +161,9 @@ pub(crate) fn move_via_copy(src: &Path, dst: &Path) -> io::Result<()> {
         let _ = fs::remove_file(dst); // só a nossa cópia
         return Err(io::Error::other("arquivo de origem mudou durante a cópia"));
     }
-    fs::remove_file(src)
+    fs::remove_file(src).inspect_err(|_| {
+        let _ = fs::remove_file(dst); // a origem continua intacta; não deixar duplicata
+    })
 }
 
 fn snapshot(src: &Path) -> io::Result<(u64, std::time::SystemTime)> {
@@ -334,6 +336,22 @@ mod tests {
         let snap = snapshot(&src).unwrap();
         fs::write(&src, "xyz").unwrap();
         assert!(!unchanged(&src, snap).unwrap());
+    }
+
+    #[test]
+    fn failed_source_removal_removes_our_copy() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempfile::tempdir().unwrap();
+        let ro = d.path().join("ro");
+        fs::create_dir(&ro).unwrap();
+        let src = ro.join("a.bin");
+        let dst = d.path().join("b.bin");
+        fs::write(&src, "x").unwrap();
+        fs::set_permissions(&ro, fs::Permissions::from_mode(0o555)).unwrap();
+        let r = move_via_copy(&src, &dst);
+        fs::set_permissions(&ro, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(r.unwrap_err().kind(), io::ErrorKind::PermissionDenied);
+        assert!(src.exists() && !dst.exists());
     }
 
     #[test]
