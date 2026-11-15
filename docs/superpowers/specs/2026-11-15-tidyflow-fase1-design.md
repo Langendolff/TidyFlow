@@ -139,7 +139,7 @@ o pior caso é um movimento que não pode ser desfeito.
 | Undo com `dst` ausente | Avisa e não marca como desfeito |
 | Undo com `src` ocupado | Restaura com sufixo `(1)` |
 | Watch cai | Log, nova tentativa a cada 60s, notifica uma vez |
-| SQLite travado | `busy_timeout` 5s; se falhar, não executa a ação |
+| SQLite travado | `busy_timeout` 5s; se ainda falhar, a ação já executada fica sem registro (log em `warn`), como no pior caso acima |
 
 Logs com `tracing` no stderr (capturados pelo journald do systemd).
 
