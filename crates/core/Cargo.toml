@@ -5,9 +5,12 @@ edition = "2024"
 
 [dependencies]
 globset = "0.4.21"
+infer = "0.22.0"
+mime_guess = "2.0.5"
 regex = "1.13.1"
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.2.1"
+xattr = "1.7.0"
 
 [dev-dependencies]
 tempfile = "3.27.0"
