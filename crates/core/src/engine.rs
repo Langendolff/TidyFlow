@@ -71,7 +71,9 @@ pub fn process(
         Ok(None) => Ok(Report::NoMatch),
         Err(e) => {
             let error = e.to_string();
-            journal.record_error(&rule.name, kind, path, &error)?;
+            if let Err(je) = journal.record_error(&rule.name, kind, path, &error) {
+                return Err(format!("{error} (e falhou ao gravar no journal: {je})").into());
+            }
             Ok(Report::Failed {
                 rule: rule.name.clone(),
                 error,
@@ -295,6 +297,23 @@ mod tests {
         assert!(matches!(r, Report::Failed { .. }), "{r:?}");
         assert!(p.exists());
         assert!(e.journal.recent(1).unwrap()[0].error.is_some());
+    }
+
+    #[test]
+    fn journal_failure_after_action_error_keeps_both_errors() {
+        let e = env();
+        fs::write(&e.out, "sou um arquivo, não uma pasta").unwrap();
+        let p = e.watch.join("a.pdf");
+        fs::write(&p, "x").unwrap();
+        rusqlite::Connection::open(e._d.path().join("j.db"))
+            .unwrap()
+            .execute_batch("CREATE TRIGGER t BEFORE INSERT ON actions BEGIN SELECT RAISE(ABORT, \"journal quebrado\"); END")
+            .unwrap();
+        let err = process(&e.cfg, &e.journal, &p, false, SystemTime::now())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("journal quebrado"), "{err}");
+        assert!(err.contains("File exists"), "{err}");
     }
 
     #[test]

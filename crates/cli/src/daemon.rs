@@ -203,8 +203,18 @@ impl Daemon {
                 }
             }
             Ok(_) => {}
-            Err(e) if !path.exists() => debug!("{} sumiu antes da ação: {e}", path.display()),
-            Err(e) => warn!("{}: {e}", path.display()),
+            Err(e)
+                if e.downcast_ref::<std::io::Error>()
+                    .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound) =>
+            {
+                debug!("{} sumiu antes da ação: {e}", path.display())
+            }
+            Err(e) => {
+                warn!("{}: {e}", path.display());
+                if single {
+                    self.alert(&format!("{}: {e}", path.display()));
+                }
+            }
         }
     }
 
