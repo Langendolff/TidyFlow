@@ -67,7 +67,8 @@ Dependências: `notify`, `rusqlite`, `serde`, `toml`, `xattr`, `infer`, `trash`,
    diferentes: copia, faz fsync, confere o tamanho e só então remove a origem.
 6. **journal**: `INSERT (id, ts, rule, action, src, dst, undone=0)`.
 7. Notificação D-Bus com o botão `Desfazer`, que chama `journal.undo(id)`
-   (move dst → src e marca `undone=1`).
+   (move dst → src e marca `undone=1`). Só para arquivos vindos de eventos; uma
+   varredura gera um único resumo ("N arquivo(s) organizado(s)"), sem botão.
 
 Também:
 
@@ -75,8 +76,24 @@ Também:
   1h) que varre as pastas monitoradas e entra no fluxo a partir do passo 3.
 - Na inicialização, o daemon faz uma varredura completa (arquivos que chegaram com
   o daemon parado).
-- Anti-loop: eventos em caminhos que aparecem como `dst` no journal nos últimos 5s
-  são ignorados.
+- Anti-loop: eventos em caminhos que aparecem como `dst` no journal até 5s antes
+  do **momento em que o evento chegou** são ignorados (o horário é registrado no
+  callback do watcher, não quando a fila processa o evento).
+- Desfazer é definitivo para aquele arquivo: o undo grava o xattr
+  `user.tidyflow.keep` no arquivo restaurado, e o engine ignora arquivos com essa
+  marca (também nas varreduras). Um download novo com o mesmo nome não tem a marca.
+  Se o xattr não puder ser gravado (arquivo somente leitura, vfat, NFS), o journal
+  registra o undo com `undone=2` e o engine ignora aquele caminho enquanto a
+  entrada existir no histórico. Nesse caso, um download novo no mesmo caminho
+  também é ignorado.
+- Cópia não se repete: um arquivo já copiado e não modificado desde a cópia
+  (`ts` da entrada `copy` ≥ mtime) não é copiado de novo nas varreduras.
+- Varreduras (inicial, por idade, `tidyflow run`) ignoram arquivos modificados há
+  menos de 10s; esses arquivos ainda podem estar sendo escritos e são tratados
+  pelo evento `CLOSE_WRITE`. A cópia entre discos confere de novo que a origem não
+  mudou antes de removê-la.
+- Pasta `watch` inexistente não é erro: `check` mostra um aviso e o daemon tenta
+  monitorá-la a cada 60s; quando ela volta, roda uma varredura.
 
 ## Sintaxe das regras
 
@@ -119,8 +136,8 @@ zero à esquerda), `{ext}`, `{name}` (sem extensão), `{origin_host}` (`unknown`
 quando o arquivo não tem origem).
 
 **Validação**: `tidyflow check` mostra erros com o número da linha (regex inválida,
-chave desconhecida, `watch` inexistente, regra sem condição ou com mais de uma
-ação). Se o daemon recarregar um config inválido, ele mantém o config anterior e
+chave desconhecida, regra sem condição ou com mais de uma ação,
+`age_scan_interval` zero). Pastas `watch` inexistentes aparecem como aviso. Se o daemon recarregar um config inválido, ele mantém o config anterior e
 notifica o erro.
 
 Fora da Fase 1: OU/NÃO aninhados, várias ações por regra, scripts.
@@ -137,7 +154,7 @@ o pior caso é um movimento que não pode ser desfeito.
 | Sem permissão ou disco cheio | Não move; erro no journal e notificação; arquivo fica onde estava |
 | Cópia entre discos falha | Remove a cópia parcial; origem intacta |
 | Undo com `dst` ausente | Avisa e não marca como desfeito |
-| Undo com `src` ocupado | Restaura com sufixo `(1)` |
+| Undo com `src` ocupado | Restaura com sufixo `(1)`. Exceção: o undo de `trash` falha com uma mensagem clara e o original continua na lixeira |
 | Watch cai | Log, nova tentativa a cada 60s, notifica uma vez |
 | SQLite travado | `busy_timeout` 5s; se ainda falhar, a ação já executada fica sem registro (log em `warn`), como no pior caso acima |
 

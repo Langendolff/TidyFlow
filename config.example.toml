@@ -1,0 +1,35 @@
+[settings]
+age_scan_interval = "1h"
+notify = true
+
+# Primeira regra que casar vence: deixe as mais específicas em cima.
+
+[[rule]]
+name   = "Faturas Nubank"
+watch  = ["~/Downloads"]
+when   = { origin = "*.nubank.com.br", mime = "application/pdf" }
+action = { move = "~/Documentos/Finanças/{year}/" }
+
+[[rule]]
+name   = "Notas fiscais"
+watch  = ["~/Downloads", "~/Desktop"]
+when   = { ext = ["pdf", "xml"], name_regex = "(?i)nota|nf-?e" }
+action = { move = "~/Documentos/NotasFiscais/{year}-{month}/" }
+
+[[rule]]
+name   = "Imagens por site"
+watch  = ["~/Downloads"]
+when   = { mime = "image/*" }
+action = { move = "~/Imagens/{origin_host}/" }
+
+[[rule]]
+name   = "Instaladores grandes antigos"
+watch  = ["~/Downloads"]
+when   = { ext = ["iso", "AppImage", "deb"], size_gt = "100MB", older_than = "14d" }
+action = { trash = true }
+
+[[rule]]
+name   = "Limpeza geral"
+watch  = ["~/Downloads"]
+when   = { older_than = "30d" }
+action = { trash = true }
