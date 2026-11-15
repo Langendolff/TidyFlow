@@ -121,7 +121,9 @@ fn restore_from_trash(src: &Path) -> io::Result<()> {
 // ponytail: verificar e depois usar (TOCTOU). Duas instâncias escrevendo no mesmo
 // destino ao mesmo tempo podem colidir. Usar O_EXCL / renameat2(NOREPLACE) se isso acontecer.
 fn free_path(p: &Path) -> PathBuf {
-    if !p.exists() {
+    // symlink_metadata: um symlink quebrado também ocupa o nome.
+    let taken = |c: &Path| fs::symlink_metadata(c).is_ok();
+    if !taken(p) {
         return p.to_path_buf();
     }
     let stem = p.file_stem().unwrap_or_default().to_string_lossy();
@@ -131,7 +133,7 @@ fn free_path(p: &Path) -> PathBuf {
             Some(e) => p.with_file_name(format!("{stem} ({n}).{e}")),
             None => p.with_file_name(format!("{stem} ({n})")),
         })
-        .find(|c| !c.exists())
+        .find(|c| !taken(c))
         .expect("sufixo livre")
 }
 
@@ -148,18 +150,39 @@ pub(crate) fn move_via_copy(src: &Path, dst: &Path) -> io::Result<()> {
 }
 
 fn copy_verified(src: &Path, dst: &Path) -> io::Result<()> {
+    // create_new: falha se algo surgiu depois de free_path; nesse caso não removemos nada.
+    let mut out = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(dst)?;
     let result = (|| {
-        let n = fs::copy(src, dst)?;
-        fs::File::open(dst)?.sync_all()?;
-        if n != fs::metadata(src)?.len() {
+        let meta = fs::metadata(src)?;
+        let mut input = fs::File::open(src)?;
+        io::copy(&mut input, &mut out)?;
+        out.set_permissions(meta.permissions())?;
+        out.set_modified(meta.modified()?)?;
+        out.sync_all()?;
+        if fs::metadata(dst)?.len() != meta.len() {
             return Err(io::Error::other("tamanho da cópia não confere"));
         }
+        copy_xattrs(src, dst);
         Ok(())
     })();
     if result.is_err() {
         let _ = fs::remove_file(dst); // só a nossa cópia parcial
     }
     result
+}
+
+// Atributos estendidos (ex.: user.xdg.origin.url); falhas por atributo são ignoradas
+// porque nem todo sistema de arquivos suporta xattr.
+fn copy_xattrs(src: &Path, dst: &Path) {
+    let Ok(names) = xattr::list(src) else { return };
+    for n in names {
+        if let Ok(Some(v)) = xattr::get(src, &n) {
+            let _ = xattr::set(dst, &n, &v);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -252,8 +275,21 @@ mod tests {
         let src = d.path().join("a.bin");
         let dst = d.path().join("b.bin");
         fs::write(&src, vec![7u8; 10_000]).unwrap();
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(86_400 * 30);
+        fs::File::options()
+            .write(true)
+            .open(&src)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        xattr::set(&src, "user.xdg.origin.url", b"http://x").unwrap();
         move_via_copy(&src, &dst).unwrap();
         assert!(!src.exists());
+        assert_eq!(fs::metadata(&dst).unwrap().modified().unwrap(), old);
+        assert_eq!(
+            xattr::get(&dst, "user.xdg.origin.url").unwrap().unwrap(),
+            b"http://x"
+        );
         assert_eq!(fs::read(&dst).unwrap(), vec![7u8; 10_000]);
     }
 
@@ -298,5 +334,29 @@ mod tests {
         assert!(!f.path.exists() && done.dst.is_none());
         undo(done.kind, &done.src, None).unwrap();
         assert!(f.path.exists());
+    }
+
+    #[test]
+    fn copy_does_not_touch_preexisting_dst() {
+        let d = tempfile::tempdir().unwrap();
+        let src = d.path().join("a.bin");
+        let dst = d.path().join("b.bin");
+        fs::write(&src, "novo").unwrap();
+        fs::write(&dst, "velho").unwrap();
+        assert!(move_via_copy(&src, &dst).is_err());
+        assert_eq!(fs::read_to_string(&src).unwrap(), "novo");
+        assert_eq!(fs::read_to_string(&dst).unwrap(), "velho");
+    }
+
+    #[test]
+    fn dangling_symlink_counts_as_occupied() {
+        let d = tempfile::tempdir().unwrap();
+        fs::create_dir_all(d.path().join("out/pdf")).unwrap();
+        let link = d.path().join("out/pdf/a.pdf");
+        std::os::unix::fs::symlink("/nao/existe/alvo", &link).unwrap();
+        let f = file(d.path(), "a.pdf", "1");
+        let done = execute(&mv(d.path()), &f).unwrap().unwrap();
+        assert_eq!(done.dst.unwrap(), d.path().join("out/pdf/a (1).pdf"));
+        assert_eq!(fs::read_link(&link).unwrap(), Path::new("/nao/existe/alvo"));
     }
 }
