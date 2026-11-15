@@ -43,7 +43,10 @@ pub fn parse_duration(s: &str) -> Result<Duration, String> {
             ));
         }
     };
-    Ok(Duration::from_secs(n * secs))
+    let total = n
+        .checked_mul(secs)
+        .ok_or_else(|| format!("duração grande demais: {s:?}"))?;
+    Ok(Duration::from_secs(total))
 }
 
 #[cfg(test)]
@@ -79,5 +82,6 @@ mod tests {
         assert!(parse_duration("30").is_err());
         assert!(parse_duration("d").is_err());
         assert!(parse_duration("3y").is_err());
+        assert!(parse_duration("99999999999999999d").is_err());
     }
 }
