@@ -194,13 +194,13 @@ fn copy_verified(src: &Path, dst: &Path) -> io::Result<()> {
         let meta = fs::metadata(src)?;
         let mut input = fs::File::open(src)?;
         io::copy(&mut input, &mut out)?;
+        copy_xattrs(src, dst); // antes das permissões: dst somente leitura recusaria o xattr
         out.set_permissions(meta.permissions())?;
         out.set_modified(meta.modified()?)?;
         out.sync_all()?;
         if fs::metadata(dst)?.len() != meta.len() {
             return Err(io::Error::other("tamanho da cópia não confere"));
         }
-        copy_xattrs(src, dst);
         Ok(())
     })();
     if result.is_err() {
@@ -364,11 +364,27 @@ mod tests {
     }
 
     #[test]
+    fn readonly_source_keeps_xattrs() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempfile::tempdir().unwrap();
+        let src = d.path().join("a.bin");
+        let dst = d.path().join("b.bin");
+        fs::write(&src, "x").unwrap();
+        xattr::set(&src, "user.xdg.origin.url", b"http://x").unwrap();
+        fs::set_permissions(&src, fs::Permissions::from_mode(0o444)).unwrap();
+        move_via_copy(&src, &dst).unwrap();
+        assert_eq!(
+            xattr::get(&dst, "user.xdg.origin.url").unwrap().unwrap(),
+            b"http://x"
+        );
+    }
+
+    #[test]
     fn failed_copy_leaves_source_and_no_partial() {
         let d = tempfile::tempdir().unwrap();
         let src = d.path().join("a.bin");
         fs::write(&src, "x").unwrap();
-        let dst = d.path().join("nao/existe/b.bin"); // pasta pai ausente → fs::copy falha
+        let dst = d.path().join("nao/existe/b.bin"); // pasta pai ausente → abrir o destino falha
         assert!(move_via_copy(&src, &dst).is_err());
         assert!(src.exists() && !dst.exists());
     }
