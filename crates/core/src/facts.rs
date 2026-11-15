@@ -55,7 +55,7 @@ impl Facts {
         let rest = self.origin_url.as_deref()?.split_once("://")?.1;
         let authority = rest.split(['/', '?', '#']).next()?;
         let host = authority.rsplit('@').next()?.split(':').next()?;
-        (!host.is_empty()).then(|| host.to_ascii_lowercase())
+        (!matches!(host, "" | "." | "..")).then(|| host.to_ascii_lowercase())
     }
 
     pub fn age(&self, now: SystemTime) -> Duration {
@@ -151,6 +151,8 @@ mod tests {
             ("https://h.com#frag", Some("h.com")),
             ("not a url", None),
             ("file:///home/x", None),
+            ("http://./x", None),
+            ("http://../x", None),
         ] {
             f.origin_url = Some(url.into());
             assert_eq!(f.origin_host().as_deref(), host, "{url}");
