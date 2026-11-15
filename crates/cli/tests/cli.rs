@@ -88,3 +88,27 @@ fn check_reports_bad_config() {
     assert!(!o.status.success());
     assert!(String::from_utf8_lossy(&o.stderr).contains("linha 2"));
 }
+
+#[test]
+fn daemon_organizes_new_and_existing_files() {
+    use std::{
+        thread,
+        time::{Duration, Instant},
+    };
+    let e = env();
+    fs::write(e.watch.join("antes.pdf"), "x").unwrap(); // varredura inicial
+    let mut child = cmd(&e).arg("daemon").spawn().unwrap();
+    thread::sleep(Duration::from_millis(500));
+    fs::write(e.watch.join("depois.pdf"), "x").unwrap(); // evento inotify
+
+    let wanted = [e.out.join("antes.pdf"), e.out.join("depois.pdf")];
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !wanted.iter().all(|p| p.exists()) && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(100));
+    }
+    child.kill().unwrap();
+    child.wait().unwrap();
+    for p in &wanted {
+        assert!(p.exists(), "{} não chegou", p.display());
+    }
+}

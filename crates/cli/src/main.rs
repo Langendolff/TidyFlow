@@ -1,3 +1,5 @@
+mod daemon;
+mod desktop;
 use clap::{Parser, Subcommand};
 use std::{
     path::{Path, PathBuf},
@@ -28,6 +30,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Monitora as pastas e organiza em tempo real
+    Daemon,
     /// Varre as pastas monitoradas uma vez
     Run {
         /// Só mostra o que seria feito
@@ -65,6 +69,7 @@ fn main() -> ExitCode {
 
 fn run(cmd: Cmd, config_path: &Path) -> tidyflow_core::Result<()> {
     match cmd {
+        Cmd::Daemon => daemon::run(config_path, &journal::default_path())?,
         Cmd::Run { dry_run } => {
             let cfg = config::load(config_path)?;
             let journal = Journal::open(&journal::default_path())?;
