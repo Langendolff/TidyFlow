@@ -125,7 +125,16 @@ fn restore_from_trash(src: &Path) -> io::Result<()> {
                 format!("{} não está na lixeira", src.display()),
             )
         })?;
-    trash::os_limited::restore_all([item]).map_err(|e| io::Error::other(e.to_string()))
+    trash::os_limited::restore_all([item]).map_err(|e| match e {
+        trash::Error::RestoreCollision { .. } => io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!(
+                "já existe um arquivo em {}; o original continua na lixeira",
+                src.display()
+            ),
+        ),
+        e => io::Error::other(e.to_string()),
+    })
 }
 
 // ponytail: verificar e depois usar (TOCTOU). Duas instâncias escrevendo no mesmo
@@ -395,6 +404,21 @@ mod tests {
         assert!(!f.path.exists() && done.dst.is_none());
         undo(done.kind, &done.src, None).unwrap();
         assert!(f.path.exists());
+    }
+
+    #[test]
+    fn trash_restore_with_occupied_src_is_explicit() {
+        let d = tempfile::tempdir().unwrap();
+        let f = file(d.path(), "ocupado.txt", "x");
+        let done = execute(&Action::Trash, &f).unwrap().unwrap();
+        fs::write(&f.path, "outro").unwrap();
+        let err = undo(done.kind, &done.src, None).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        assert!(
+            err.to_string().contains("o original continua na lixeira"),
+            "{err}"
+        );
+        assert_eq!(fs::read_to_string(&f.path).unwrap(), "outro");
     }
 
     #[test]
