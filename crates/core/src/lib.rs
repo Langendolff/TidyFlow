@@ -1,6 +1,7 @@
 pub mod config;
 pub mod facts;
 pub mod rules;
+pub mod template;
 pub mod units;
 
 use std::path::PathBuf;
