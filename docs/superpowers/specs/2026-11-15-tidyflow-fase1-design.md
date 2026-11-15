@@ -67,7 +67,8 @@ Dependências: `notify`, `rusqlite`, `serde`, `toml`, `xattr`, `infer`, `trash`,
    diferentes: copia, faz fsync, confere o tamanho e só então remove a origem.
 6. **journal**: `INSERT (id, ts, rule, action, src, dst, undone=0)`.
 7. Notificação D-Bus com o botão `Desfazer`, que chama `journal.undo(id)`
-   (move dst → src e marca `undone=1`).
+   (move dst → src e marca `undone=1`). Só para arquivos vindos de eventos; uma
+   varredura gera um único resumo ("N arquivo(s) organizado(s)"), sem botão.
 
 Também:
 
@@ -75,8 +76,14 @@ Também:
   1h) que varre as pastas monitoradas e entra no fluxo a partir do passo 3.
 - Na inicialização, o daemon faz uma varredura completa (arquivos que chegaram com
   o daemon parado).
-- Anti-loop: eventos em caminhos que aparecem como `dst` no journal nos últimos 5s
-  são ignorados.
+- Anti-loop: eventos em caminhos que aparecem como `dst` no journal até 5s antes
+  do **momento em que o evento chegou** são ignorados (o horário é registrado no
+  callback do watcher, não quando a fila processa o evento).
+- Desfazer é definitivo para aquele arquivo: o undo grava o xattr
+  `user.tidyflow.keep` no arquivo restaurado, e o engine ignora arquivos com essa
+  marca (também nas varreduras). Um download novo com o mesmo nome não tem a marca.
+- Pasta `watch` inexistente não é erro: `check` mostra um aviso e o daemon tenta
+  monitorá-la a cada 60s; quando ela volta, roda uma varredura.
 
 ## Sintaxe das regras
 
@@ -119,8 +126,8 @@ zero à esquerda), `{ext}`, `{name}` (sem extensão), `{origin_host}` (`unknown`
 quando o arquivo não tem origem).
 
 **Validação**: `tidyflow check` mostra erros com o número da linha (regex inválida,
-chave desconhecida, `watch` inexistente, regra sem condição ou com mais de uma
-ação). Se o daemon recarregar um config inválido, ele mantém o config anterior e
+chave desconhecida, regra sem condição ou com mais de uma ação,
+`age_scan_interval` zero). Pastas `watch` inexistentes aparecem como aviso. Se o daemon recarregar um config inválido, ele mantém o config anterior e
 notifica o erro.
 
 Fora da Fase 1: OU/NÃO aninhados, várias ações por regra, scripts.
