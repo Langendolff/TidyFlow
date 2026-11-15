@@ -147,7 +147,8 @@ impl Daemon {
             .parent()
             .is_some_and(|p| self.watched.iter().any(|w| w == p));
         let name = path.file_name().unwrap_or_default().to_string_lossy();
-        if !in_watched || stability::is_ignored_name(&name) {
+        // is_file: um FIFO poderia bloquear Facts::read.
+        if !in_watched || stability::is_ignored_name(&name) || !path.is_file() {
             return;
         }
         match self
