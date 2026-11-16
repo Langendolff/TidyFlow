@@ -1,5 +1,5 @@
 // Formatação para a interface. Só apresentação: nenhuma regra de negócio aqui.
-import type { ConditionKey, DraftAction, Kind, RuleDraft } from './api'
+import type { ConditionKey, DraftAction, Entry, Kind, RuleDraft } from './api'
 
 const MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 
@@ -137,4 +137,31 @@ export function ruleSummary(d: RuleDraft): string {
   const conds = d.when.map((c) => conditionSummary(c.key, c.value)).join(' · ')
   const s = `${conds} → ${actionLabel(d.action)}`
   return d.enabled ? s : `${s} · pausada`
+}
+
+/** Pasta de um caminho já abreviado: "~/Docs/a.pdf" → "~/Docs/". */
+export function dirOf(p: string): string {
+  const i = p.lastIndexOf('/')
+  return i <= 0 ? p : p.slice(0, i + 1)
+}
+
+export function baseOf(p: string): string {
+  return p.slice(p.lastIndexOf('/') + 1)
+}
+
+/** Linha de baixo da atividade recente: o que aconteceu com o arquivo. */
+export function describeEntry(e: Entry): string {
+  if (e.error) return `Erro: ${e.error}`
+  if (e.undone) return `Desfeito · voltou para ${dirOf(e.src_display)} e não será mais organizado`
+  const dst = e.dst_display ?? ''
+  switch (e.kind) {
+    case 'move':
+      return `Movido para ${dirOf(dst)}`
+    case 'copy':
+      return `Copiado para ${dirOf(dst)}`
+    case 'rename':
+      return `Renomeado para ${baseOf(dst)}`
+    case 'trash':
+      return e.size != null ? `Enviado à lixeira · ${size(e.size)}` : 'Enviado à lixeira'
+  }
 }

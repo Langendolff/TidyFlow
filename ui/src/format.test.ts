@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { RuleDraft } from './api'
-import { prettyDuration, relativeTime, ruleSummary, size, whenLabel } from './format'
+import { describeEntry, prettyDuration, relativeTime, ruleSummary, size, whenLabel } from './format'
 
 const now = new Date(2026, 10, 16, 15, 0, 0) // 16 nov 2026 15:00 local
 const ts = (d: Date) => Math.floor(d.getTime() / 1000)
@@ -72,5 +72,34 @@ describe('ruleSummary', () => {
     expect(prettyDuration('2w')).toBe('2 semanas')
     expect(prettyDuration('12h')).toBe('12 h')
     expect(prettyDuration('xyz')).toBe('xyz')
+  })
+})
+
+describe('describe', () => {
+  const e = {
+    id: 1,
+    ts: 0,
+    rule: 'r',
+    kind: 'move' as const,
+    name: 'a.pdf',
+    src: '/h/Downloads/a.pdf',
+    src_display: '~/Downloads/a.pdf',
+    dst: '/h/Docs/2026/a.pdf',
+    dst_display: '~/Docs/2026/a.pdf',
+    size: 4_700_000_000,
+    undone: false,
+    error: null,
+  }
+  it('per kind', () => {
+    expect(describeEntry(e)).toBe('Movido para ~/Docs/2026/')
+    expect(describeEntry({ ...e, kind: 'copy' })).toBe('Copiado para ~/Docs/2026/')
+    expect(describeEntry({ ...e, kind: 'rename', dst_display: '~/Downloads/2026-a.pdf' })).toBe(
+      'Renomeado para 2026-a.pdf',
+    )
+    expect(describeEntry({ ...e, kind: 'trash', dst_display: null })).toBe('Enviado à lixeira · 4,7 GB')
+    expect(describeEntry({ ...e, error: 'sem permissão' })).toBe('Erro: sem permissão')
+    expect(describeEntry({ ...e, undone: true })).toBe(
+      'Desfeito · voltou para ~/Downloads/ e não será mais organizado',
+    )
   })
 })
