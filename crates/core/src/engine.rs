@@ -1,7 +1,7 @@
 use crate::{
     Result,
     actions::{self, Kind},
-    config::Config,
+    config::{Config, Rule},
     facts::Facts,
     journal::{Entry, Journal},
     rules, stability,
@@ -59,7 +59,34 @@ pub fn process(
             dst: actions::destination(&rule.action, &facts),
         });
     }
-    match actions::execute(&rule.action, &facts) {
+    apply(rule, &facts, journal)
+}
+
+/// Organiza um arquivo escolhido pelo usuário (menu de contexto, "Aplicar agora"):
+/// vale qualquer regra ativa, qualquer que seja o `watch`, sem idade mínima, e a
+/// marca de desfeito é ignorada e removida (o pedido explícito vence o undo).
+pub fn organize(cfg: &Config, journal: &Journal, path: &Path, now: SystemTime) -> Result<Report> {
+    let facts = Facts::read(path)?;
+    let Some(rule) = rules::first_match_anywhere(&cfg.rules, &facts, now) else {
+        return Ok(Report::NoMatch);
+    };
+    let report = apply(rule, &facts, journal)?;
+    if let Report::Done { done, .. } = &report {
+        if let Some(dst) = &done.dst {
+            actions::clear_keep(dst);
+        }
+        if done.kind == Kind::Copy {
+            actions::clear_keep(&done.src);
+        }
+    }
+    Ok(report)
+}
+
+/// Executa → grava no journal (sucesso ou erro).
+fn apply(rule: &Rule, facts: &Facts, journal: &Journal) -> Result<Report> {
+    let path = facts.path.as_path();
+    let kind = actions::kind_of(&rule.action);
+    match actions::execute(&rule.action, facts) {
         Ok(Some(done)) => {
             let id = journal.record(&rule.name, &done, facts.size)?;
             Ok(Report::Done {
@@ -373,5 +400,80 @@ mod tests {
                 .to_string()
                 .contains("não existe")
         );
+    }
+
+    fn has_keep(p: &Path) -> bool {
+        xattr::get(p, crate::facts::KEEP_XATTR).is_ok_and(|v| v.is_some())
+    }
+
+    fn xattr_supported(dir: &Path) -> bool {
+        let p = dir.join(".probe");
+        fs::write(&p, "").unwrap();
+        let ok = xattr::set(&p, "user.tidyflow.probe", b"1").is_ok();
+        fs::remove_file(&p).unwrap();
+        ok
+    }
+
+    #[test]
+    fn organize_ignores_watch_and_min_age() {
+        let e = env();
+        let other = e.watch.parent().unwrap().join("outra");
+        fs::create_dir(&other).unwrap();
+        let p = other.join("a.pdf");
+        fs::write(&p, "x").unwrap(); // recém-criado: o scan pularia
+        let r = organize(&e.cfg, &e.journal, &p, SystemTime::now()).unwrap();
+        assert!(matches!(r, Report::Done { .. }), "{r:?}");
+        assert!(e.out.join("a.pdf").exists() && !p.exists());
+        let entry = e.journal.recent(1).unwrap().remove(0);
+        assert_eq!(entry.size, Some(1));
+    }
+
+    #[test]
+    fn organize_overrides_keep() {
+        let e = env();
+        if !xattr_supported(&e.watch) {
+            eprintln!("fs sem xattr user.*, pulando");
+            return;
+        }
+        let p = e.watch.join("a.pdf");
+        fs::write(&p, "x").unwrap();
+        process(&e.cfg, &e.journal, &p, false, SystemTime::now()).unwrap();
+        undo(&e.journal, None).unwrap();
+        assert!(has_keep(&p));
+        let r = organize(&e.cfg, &e.journal, &p, SystemTime::now()).unwrap();
+        assert!(matches!(r, Report::Done { .. }), "{r:?}");
+        let moved = e.out.join("a.pdf");
+        assert!(moved.exists() && !has_keep(&moved));
+    }
+
+    #[test]
+    fn organize_copy_clears_keep_on_both() {
+        let d = tempfile::tempdir().unwrap();
+        if !xattr_supported(d.path()) {
+            return;
+        }
+        let out = d.path().join("out");
+        let cfg = config::parse(&format!(
+            "[[rule]]\nname = \"c\"\nwatch = [\"/nenhuma\"]\nwhen = {{ ext = [\"pdf\"] }}\naction = {{ copy = \"{}\" }}\n",
+            out.display()
+        ))
+        .unwrap();
+        let journal = Journal::open(&d.path().join("j.db")).unwrap();
+        let p = d.path().join("a.pdf");
+        fs::write(&p, "x").unwrap();
+        xattr::set(&p, crate::facts::KEEP_XATTR, b"1").unwrap();
+        organize(&cfg, &journal, &p, SystemTime::now()).unwrap();
+        assert!(!has_keep(&p) && !has_keep(&out.join("a.pdf")));
+    }
+
+    #[test]
+    fn organize_skips_paused() {
+        let mut e = env();
+        e.cfg.rules[0].enabled = false;
+        let p = e.watch.join("a.pdf");
+        fs::write(&p, "x").unwrap();
+        let r = organize(&e.cfg, &e.journal, &p, SystemTime::now()).unwrap();
+        assert!(matches!(r, Report::NoMatch), "{r:?}");
+        assert!(p.exists());
     }
 }

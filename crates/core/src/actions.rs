@@ -108,6 +108,11 @@ pub fn undo(kind: Kind, src: &Path, dst: Option<&Path>) -> io::Result<bool> {
 }
 
 /// Marca o arquivo restaurado para o engine não reorganizá-lo.
+/// Remove a marca de desfeito (ausente ou fs sem xattr: nada a fazer).
+pub fn clear_keep(path: &Path) {
+    let _ = xattr::remove(path, crate::facts::KEEP_XATTR);
+}
+
 fn keep(path: &Path) -> bool {
     // Falha (fs sem xattr, arquivo somente leitura) não desfaz o undo; o journal cobre.
     xattr::set(path, crate::facts::KEEP_XATTR, b"1").is_ok()
