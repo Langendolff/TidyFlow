@@ -26,3 +26,6 @@ export const callsOf = (cmd: string) => calls.filter((c) => c.cmd === cmd)
 
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: async () => '/home/u/Desktop' }))
 vi.mock('@tauri-apps/api/path', () => ({ homeDir: async () => '/home/u' }))
+vi.mock('@tauri-apps/api/webview', () => ({
+  getCurrentWebview: () => ({ onDragDropEvent: async () => () => {} }),
+}))
