@@ -38,6 +38,12 @@ enum Cmd {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Organiza os arquivos dados com a primeira regra ativa que casar,
+    /// mesmo fora das pastas monitoradas (usado pelo menu de contexto)
+    Organize {
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+    },
     /// Desfaz a última ação, ou a ação <ID>
     Undo { id: Option<i64> },
     /// Mostra as últimas ações
@@ -97,6 +103,52 @@ fn run(cmd: Cmd, config_path: &Path) -> tidyflow_core::Result<()> {
                 }
             }
         }
+        Cmd::Organize { files } => {
+            let cfg = config::load(config_path)?;
+            let journal_path = journal::default_path();
+            let journal = Journal::open(&journal_path)?;
+            let mut failed = false;
+            for path in files {
+                match engine::organize(&cfg, &journal, &path, SystemTime::now()) {
+                    Ok(Report::Done { id, rule, done }) => {
+                        println!(
+                            "#{id} [{rule}] {} {} → {}",
+                            done.kind.as_str(),
+                            path.display(),
+                            target(done.dst.as_deref())
+                        );
+                        if cfg.notify {
+                            desktop::organized(journal_path.clone(), id, &done, &rule);
+                        }
+                    }
+                    Ok(Report::Failed { rule, error }) => {
+                        failed = true;
+                        eprintln!("[{rule}] falhou em {}: {error}", path.display());
+                        if cfg.notify {
+                            desktop::error(&format!("{}: {error}", path.display()));
+                        }
+                    }
+                    Ok(_) => {
+                        println!("nenhuma regra casou: {}", path.display());
+                        if cfg.notify {
+                            desktop::summary(&format!(
+                                "Nenhuma regra casou com {}",
+                                path.file_name().unwrap_or_default().to_string_lossy()
+                            ));
+                        }
+                    }
+                    Err(e) => {
+                        failed = true;
+                        eprintln!("{}: {e}", path.display());
+                    }
+                }
+            }
+            // O botão Desfazer só funciona enquanto o processo estiver vivo.
+            desktop::wait(std::time::Duration::from_secs(300));
+            if failed {
+                return Err("algum arquivo não foi organizado".into());
+            }
+        }
         Cmd::Undo { id } => {
             let journal = Journal::open(&journal::default_path())?;
             let e = engine::undo(&journal, id)?;
@@ -111,6 +163,9 @@ fn run(cmd: Cmd, config_path: &Path) -> tidyflow_core::Result<()> {
         Cmd::Check { file } => {
             let cfg = config::load(config_path)?;
             println!("config ok: {} regra(s)", cfg.rules.len());
+            for r in cfg.rules.iter().filter(|r| !r.enabled) {
+                println!("pausada: {}", r.name);
+            }
             for dir in cfg.missing_watch_dirs() {
                 println!("aviso: pasta watch não existe: {}", dir.display());
             }

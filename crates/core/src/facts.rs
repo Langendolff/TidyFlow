@@ -62,6 +62,25 @@ impl Facts {
         now.duration_since(self.modified).unwrap_or_default()
     }
 
+    /// Fatos deduzidos só do caminho, para um arquivo que não existe mais (prévia do
+    /// editor de regras): MIME pela extensão, tamanho 0, sem origem.
+    pub fn assumed(path: &Path, modified: SystemTime) -> Facts {
+        let lossy = |s: Option<&std::ffi::OsStr>| s.map(|s| s.to_string_lossy().into_owned());
+        Facts {
+            path: path.to_path_buf(),
+            name: lossy(path.file_name()).unwrap_or_default(),
+            stem: lossy(path.file_stem()).unwrap_or_default(),
+            ext: lossy(path.extension()).unwrap_or_default().to_lowercase(),
+            mime: mime_guess::from_path(path)
+                .first_or_octet_stream()
+                .to_string(),
+            size: 0,
+            modified,
+            origin_url: None,
+            keep: false,
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn sample(name: &str) -> Facts {
         let path = std::env::temp_dir().join(name);

@@ -49,6 +49,38 @@ pub fn parse_duration(s: &str) -> Result<Duration, String> {
     Ok(Duration::from_secs(total))
 }
 
+/// 100_000_000 → "100 MB" (base 1000, uma casa decimal com vírgula).
+pub fn format_size(n: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut v = n as f64;
+    let mut i = 0;
+    while v >= 1000.0 && i < UNITS.len() - 1 {
+        v /= 1000.0;
+        i += 1;
+    }
+    if i == 0 {
+        return format!("{n} B");
+    }
+    let s = format!("{:.1}", v);
+    let s = s.strip_suffix(".0").unwrap_or(&s).replace('.', ",");
+    format!("{s} {}", UNITS[i])
+}
+
+/// 14 dias → "14 dias"; usa a maior unidade que divide a duração exatamente.
+pub fn format_duration(d: Duration) -> String {
+    let s = d.as_secs();
+    match s {
+        0 => "0 s".into(),
+        _ if s.is_multiple_of(86_400) => match s / 86_400 {
+            1 => "1 dia".into(),
+            n => format!("{n} dias"),
+        },
+        _ if s.is_multiple_of(3_600) => format!("{} h", s / 3_600),
+        _ if s.is_multiple_of(60) => format!("{} min", s / 60),
+        _ => format!("{s} s"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -83,5 +115,18 @@ mod tests {
         assert!(parse_duration("d").is_err());
         assert!(parse_duration("3y").is_err());
         assert!(parse_duration("99999999999999999d").is_err());
+    }
+
+    #[test]
+    fn formats() {
+        assert_eq!(format_size(999), "999 B");
+        assert_eq!(format_size(100_000_000), "100 MB");
+        assert_eq!(format_size(3_200_000_000), "3,2 GB");
+        assert_eq!(format_size(1_500), "1,5 KB");
+        assert_eq!(format_duration(Duration::from_secs(14 * 86_400)), "14 dias");
+        assert_eq!(format_duration(Duration::from_secs(86_400)), "1 dia");
+        assert_eq!(format_duration(Duration::from_secs(12 * 3600)), "12 h");
+        assert_eq!(format_duration(Duration::from_secs(90)), "90 s");
+        assert_eq!(format_duration(Duration::from_secs(1800)), "30 min");
     }
 }
