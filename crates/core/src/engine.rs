@@ -128,7 +128,7 @@ pub fn scan(
             if !path.is_file() || stability::is_ignored_name(&entry.file_name().to_string_lossy()) {
                 continue;
             }
-            if fresh(&path, now) {
+            if fresh(&path, now) || stability::download_in_progress(&path) {
                 continue;
             }
             let report = process(cfg, journal, &path, dry_run, now);

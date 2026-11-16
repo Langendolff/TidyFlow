@@ -11,6 +11,19 @@ pub fn is_ignored_name(name: &str) -> bool {
     name.starts_with('.') || TEMP_SUFFIXES.iter().any(|s| name.ends_with(s))
 }
 
+/// Firefox cria `X` vazio como marcador ao lado de `X.part` enquanto baixa;
+/// mover o marcador faz o arquivo real colidir com ele depois.
+pub fn download_in_progress(path: &Path) -> bool {
+    let Some(name) = path.file_name() else {
+        return false;
+    };
+    TEMP_SUFFIXES.iter().any(|s| {
+        let mut sibling = name.to_os_string();
+        sibling.push(s);
+        path.with_file_name(sibling).exists()
+    })
+}
+
 fn snapshot(path: &Path) -> Option<(u64, SystemTime)> {
     let m = fs::metadata(path).ok()?;
     Some((m.len(), m.modified().ok()?))
@@ -49,6 +62,16 @@ mod tests {
         for n in ["a.pdf", "partitura.pdf", "tmp.txt"] {
             assert!(!is_ignored_name(n), "{n}");
         }
+    }
+
+    #[test]
+    fn placeholder_with_part_sibling() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("a.deb");
+        fs::write(&p, "").unwrap();
+        assert!(!download_in_progress(&p));
+        fs::write(d.path().join("a.deb.part"), "x").unwrap();
+        assert!(download_in_progress(&p));
     }
 
     #[test]

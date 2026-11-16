@@ -164,6 +164,10 @@ impl Daemon {
         if !stability::wait_stable(path, QUIET, MAX_WAIT) {
             return debug!("{} sumiu ou não estabilizou", path.display());
         }
+        // Checado depois da espera: o .part pode surgir logo após o marcador.
+        if stability::download_in_progress(path) {
+            return debug!("{} ainda está baixando", path.display());
+        }
         let result = engine::process(&self.cfg, &self.journal, path, false, SystemTime::now());
         self.report(path, result, true);
     }
