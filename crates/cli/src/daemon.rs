@@ -194,7 +194,7 @@ impl Daemon {
             Ok(Report::Done { id, rule, done }) => {
                 info!("#{id} [{rule}] {}", describe(&done));
                 if single && self.cfg.notify {
-                    desktop::organized(self.journal_path.clone(), id, describe(&done));
+                    desktop::organized(self.journal_path.clone(), id, &done, &rule);
                 }
             }
             Ok(Report::Failed { rule, error }) => {

@@ -169,3 +169,28 @@ fn check_warns_about_missing_watch_dir() {
     assert!(o.status.success(), "{o:?}");
     assert!(stdout(&o).contains("aviso"), "{}", stdout(&o));
 }
+
+#[test]
+fn organize_outside_watch() {
+    let e = env();
+    let other = e.d.path().join("outra");
+    fs::create_dir(&other).unwrap();
+    let p = other.join("a.pdf");
+    fs::write(&p, "x").unwrap(); // recém-criado
+    let o = run(&e, &["organize", p.to_str().unwrap()]);
+    assert!(o.status.success(), "{o:?}");
+    assert!(stdout(&o).starts_with("#1 [pdfs] move "), "{}", stdout(&o));
+    assert!(e.out.join("a.pdf").exists() && !p.exists());
+
+    let txt = other.join("b.txt");
+    fs::write(&txt, "x").unwrap();
+    let o = run(&e, &["organize", txt.to_str().unwrap()]);
+    assert!(o.status.success());
+    assert!(stdout(&o).contains("nenhuma regra casou"), "{}", stdout(&o));
+
+    let o = run(
+        &e,
+        &["organize", other.join("nao-existe.pdf").to_str().unwrap()],
+    );
+    assert!(!o.status.success());
+}
