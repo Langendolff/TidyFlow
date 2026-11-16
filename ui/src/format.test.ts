@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { RuleDraft } from './api'
-import { describeEntry, prettyDuration, relativeTime, ruleSummary, size, whenLabel } from './format'
+import { describeEntry, historyDetail, historyName, prettyDuration, relativeTime, ruleSummary, size, whenLabel } from './format'
 
 const now = new Date(2026, 10, 16, 15, 0, 0) // 16 nov 2026 15:00 local
 const ts = (d: Date) => Math.floor(d.getTime() / 1000)
@@ -101,5 +101,32 @@ describe('describe', () => {
     expect(describeEntry({ ...e, undone: true })).toBe(
       'Desfeito · voltou para ~/Downloads/ e não será mais organizado',
     )
+  })
+})
+
+describe('history rows', () => {
+  const e = {
+    id: 1,
+    ts: 0,
+    rule: 'r',
+    kind: 'move' as const,
+    name: 'a.pdf',
+    src: '/h/Downloads/a.pdf',
+    src_display: '~/Downloads/a.pdf',
+    dst: '/h/Docs/2026/a.pdf',
+    dst_display: '~/Docs/2026/a.pdf',
+    size: 4_700_000_000,
+    undone: false,
+    error: null,
+  }
+  it('detail', () => {
+    expect(historyDetail(e)).toBe('~/Downloads → ~/Docs/2026')
+    expect(historyDetail({ ...e, kind: 'trash', dst_display: null })).toBe('~/Downloads → Lixeira · 4,7 GB')
+    expect(historyDetail({ ...e, undone: true })).toBe('de volta em ~/Downloads · marcado para manter')
+    expect(historyDetail({ ...e, error: 'destino já existe' })).toBe('destino já existe')
+    const rn = { ...e, kind: 'rename' as const, dst_display: '~/Downloads/2026-a.pdf' }
+    expect(historyDetail(rn)).toBe('antes: a.pdf')
+    expect(historyName(rn)).toBe('2026-a.pdf')
+    expect(historyName(e)).toBe('a.pdf')
   })
 })

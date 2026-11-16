@@ -41,7 +41,7 @@ export default function App() {
         <main className="min-w-0 flex-1 overflow-auto px-8 pt-7 pb-8">
           {screen === 'overview' && <Overview version={version} go={go} />}
           {screen === 'rules' && <Rules version={version} />}
-          {screen === 'history' && <History version={version} initialFilter={filter} />}
+          {screen === 'history' && <History key={filter} version={version} initialFilter={filter} />}
           {screen === 'test' && <TestFile file={file} onFile={setFile} />}
         </main>
       </div>

@@ -165,3 +165,24 @@ export function describeEntry(e: Entry): string {
       return e.size != null ? `Enviado à lixeira · ${size(e.size)}` : 'Enviado à lixeira'
   }
 }
+
+const folder = (p: string) => dirOf(p).replace(/\/$/, '') || '/'
+
+/** Nome mostrado no histórico: o novo nome quando foi renomeado. */
+export function historyName(e: Entry): string {
+  return e.kind === 'rename' && !e.error && !e.undone && e.dst_display ? baseOf(e.dst_display) : e.name
+}
+
+/** Linha de baixo do histórico: origem → destino. */
+export function historyDetail(e: Entry): string {
+  if (e.error) return e.error
+  if (e.undone) return `de volta em ${folder(e.src_display)} · marcado para manter`
+  switch (e.kind) {
+    case 'rename':
+      return `antes: ${e.name}`
+    case 'trash':
+      return `${folder(e.src_display)} → Lixeira${e.size != null ? ` · ${size(e.size)}` : ''}`
+    default:
+      return `${folder(e.src_display)} → ${folder(e.dst_display ?? '')}`
+  }
+}
