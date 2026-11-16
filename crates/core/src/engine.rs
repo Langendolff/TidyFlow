@@ -61,7 +61,7 @@ pub fn process(
     }
     match actions::execute(&rule.action, &facts) {
         Ok(Some(done)) => {
-            let id = journal.record(&rule.name, &done)?;
+            let id = journal.record(&rule.name, &done, facts.size)?;
             Ok(Report::Done {
                 id,
                 rule: rule.name.clone(),
