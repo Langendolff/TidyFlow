@@ -112,6 +112,11 @@ impl Editor {
         })
     }
 
+    /// mtime do arquivo quando foi lido (`None`: não existia).
+    pub fn mtime(&self) -> Option<SystemTime> {
+        self.mtime
+    }
+
     pub fn drafts(&self) -> Result<Vec<RuleDraft>, EditError> {
         match self.rules() {
             Some(aot) => aot.iter().map(draft_of).collect(),

@@ -6,7 +6,7 @@ use crate::{
 use std::time::SystemTime;
 
 /// Resultado de uma condição: `expected` é o valor da regra, legível.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct Check {
     pub key: &'static str,
     pub expected: String,

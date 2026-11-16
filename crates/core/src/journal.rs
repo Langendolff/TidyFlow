@@ -64,7 +64,7 @@ impl Filter {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct Counts {
     pub all: u64,
     pub moved: u64,
@@ -101,7 +101,7 @@ impl Periods {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct Stats {
     pub organized_today: u64,
     pub organized_yesterday: u64,
