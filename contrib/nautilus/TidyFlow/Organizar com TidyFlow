@@ -1,0 +1,9 @@
+#!/bin/sh
+# Nautilus → Scripts → TidyFlow → Organizar com TidyFlow
+# Aplica a primeira regra ativa que casar a cada arquivo selecionado.
+PATH="$PATH:$HOME/.cargo/bin"
+set -f        # nomes com * ou ? não viram glob
+IFS='
+'
+# shellcheck disable=SC2086 # um caminho por linha, de propósito
+exec tidyflow organize $NAUTILUS_SCRIPT_SELECTED_FILE_PATHS
