@@ -156,6 +156,7 @@ fn run(cmd: Cmd, config_path: &Path) -> tidyflow_core::Result<()> {
         }
         Cmd::History { limit } => {
             let journal = Journal::open(&journal::default_path())?;
+            journal.sweep_gone()?;
             for e in journal.recent(limit)? {
                 println!("{}", format_entry(&e));
             }

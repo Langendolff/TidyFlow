@@ -29,16 +29,24 @@ CREATE INDEX IF NOT EXISTS actions_ts ON actions(ts);
 
 const COLS: &str = "id, ts, rule, kind, src, dst, undone, error, size";
 
-/// Fase 1 → v1: coluna `size` (bytes do arquivo no momento da ação).
+/// v1: coluna `size` (bytes do arquivo no momento da ação).
+/// v2: coluna `gone` (o arquivo sumiu de onde a ação o deixou; some do histórico).
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
-    if v < 1 {
+    let steps = [
+        "ALTER TABLE actions ADD COLUMN size INTEGER;",
+        "ALTER TABLE actions ADD COLUMN gone INTEGER NOT NULL DEFAULT 0;",
+    ];
+    for (i, step) in steps.iter().enumerate().skip(v.max(0) as usize) {
         let tx = conn.unchecked_transaction()?;
-        tx.execute_batch("ALTER TABLE actions ADD COLUMN size INTEGER; PRAGMA user_version = 1;")?;
+        tx.execute_batch(&format!("{step} PRAGMA user_version = {};", i + 1))?;
         tx.commit()?;
     }
     Ok(())
 }
+
+/// Entradas que aparecem no histórico: erros sempre; ações só enquanto o arquivo existe.
+const VISIBLE: &str = "gone = 0";
 
 /// Filtros da tela Histórico.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -176,13 +184,14 @@ impl Journal {
 
     pub fn last_undoable(&self) -> Result<Option<Entry>> {
         let sql = format!(
-            "SELECT {COLS} FROM actions WHERE undone = 0 AND error IS NULL ORDER BY id DESC LIMIT 1"
+            "SELECT {COLS} FROM actions WHERE {VISIBLE} AND undone = 0 AND error IS NULL \
+             ORDER BY id DESC LIMIT 1"
         );
         Ok(self.conn.query_row(&sql, [], entry).optional()?)
     }
 
     pub fn recent(&self, limit: usize) -> Result<Vec<Entry>> {
-        let sql = format!("SELECT {COLS} FROM actions ORDER BY id DESC LIMIT ?1");
+        let sql = format!("SELECT {COLS} FROM actions WHERE {VISIBLE} ORDER BY id DESC LIMIT ?1");
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map([limit as i64], entry)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -229,7 +238,8 @@ impl Journal {
         limit: usize,
     ) -> Result<Vec<Entry>> {
         let sql = format!(
-            "SELECT {COLS} FROM actions WHERE ({}) AND {SEARCH} AND id < ?2 ORDER BY id DESC LIMIT ?3",
+            "SELECT {COLS} FROM actions WHERE {VISIBLE} AND ({}) AND {SEARCH} AND id < ?2 \
+             ORDER BY id DESC LIMIT ?3",
             filter.sql()
         );
         let mut stmt = self.conn.prepare(&sql)?;
@@ -244,7 +254,7 @@ impl Journal {
     pub fn counts(&self, search: &str) -> Result<Counts> {
         let n = |f: Filter| -> Result<u64> {
             let sql = format!(
-                "SELECT COUNT(*) FROM actions WHERE ({}) AND {SEARCH}",
+                "SELECT COUNT(*) FROM actions WHERE {VISIBLE} AND ({}) AND {SEARCH}",
                 f.sql()
             );
             Ok(self
@@ -301,10 +311,48 @@ impl Journal {
     /// Última ação bem-sucedida e não desfeita da regra (prévia do editor).
     pub fn last_for_rule(&self, rule: &str) -> Result<Option<Entry>> {
         let sql = format!(
-            "SELECT {COLS} FROM actions WHERE rule = ?1 AND error IS NULL AND undone = 0 \
+            "SELECT {COLS} FROM actions WHERE {VISIBLE} AND rule = ?1 AND error IS NULL AND undone = 0 \
              ORDER BY id DESC LIMIT 1"
         );
         Ok(self.conn.query_row(&sql, [rule], entry).optional()?)
+    }
+
+    /// Marca `gone` nas ações cujo arquivo não está mais onde a ação o deixou
+    /// (no destino; na origem, se desfeita): apagado, movido, lixeira esvaziada,
+    /// ou substituído pelo de uma ação mais nova no mesmo caminho.
+    /// Devolve quantas foram marcadas.
+    pub fn sweep_gone(&self) -> Result<usize> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, src, dst, undone FROM actions WHERE gone = 0 AND error IS NULL \
+             ORDER BY id DESC",
+        )?;
+        let rows: Vec<(i64, Option<PathBuf>)> = stmt
+            .query_map([], |r| {
+                let undone: i64 = r.get(3)?;
+                let dst = r.get::<_, Option<Vec<u8>>>(2)?.map(path);
+                let here = if undone > 0 {
+                    Some(path(r.get(1)?))
+                } else {
+                    dst
+                };
+                Ok((r.get(0)?, here))
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut newer = std::collections::HashSet::new();
+        let gone: Vec<i64> = rows
+            .into_iter()
+            .filter(|(_, here)| {
+                here.as_ref()
+                    .is_some_and(|p| !newer.insert(p.clone()) || fs::symlink_metadata(p).is_err())
+            })
+            .map(|(id, _)| id)
+            .collect();
+        let tx = self.conn.unchecked_transaction()?;
+        for id in &gone {
+            tx.execute("UPDATE actions SET gone = 1 WHERE id = ?1", [id])?;
+        }
+        tx.commit()?;
+        Ok(gone.len())
     }
 
     /// Maior id do journal (0 se vazio): o app compara para saber se houve ação nova.
@@ -390,6 +438,62 @@ mod tests {
             src: src.into(),
             dst: Some(dst.into()),
         }
+    }
+
+    #[test]
+    fn sweep_hides_entries_whose_file_is_gone() {
+        let (d, j) = open();
+        let kept = d.path().join("kept.pdf");
+        fs::write(&kept, "x").unwrap();
+        let src = d.path().join("src.pdf");
+        let a = j
+            .record("r", &done("/a/kept.pdf", kept.to_str().unwrap()), 0)
+            .unwrap();
+        let b = j
+            .record("r", &done("/a/x.pdf", "/nao/existe.pdf"), 0)
+            .unwrap();
+        // desfeita: o arquivo voltou para a origem, que existe
+        fs::write(&src, "x").unwrap();
+        let c = j
+            .record("r", &done(src.to_str().unwrap(), "/nao/existe2.pdf"), 0)
+            .unwrap();
+        j.mark_undone(c, true).unwrap();
+        let e = j
+            .record_error("r", Kind::Move, Path::new("/nao/existe3.pdf"), "falhou")
+            .unwrap();
+
+        assert_eq!(j.sweep_gone().unwrap(), 1);
+        let ids: Vec<i64> = j.recent(10).unwrap().iter().map(|e| e.id).collect();
+        assert_eq!(ids, [e, c, a]);
+        assert!(!ids.contains(&b));
+        assert_eq!(j.counts("").unwrap().all, 3);
+        assert_eq!(j.last_undoable().unwrap().map(|e| e.id), Some(a));
+        // idempotente
+        assert_eq!(j.sweep_gone().unwrap(), 0);
+        // ação mais nova no mesmo destino: a antiga foi substituída
+        let f = j
+            .record("r", &done("/a/kept2.pdf", kept.to_str().unwrap()), 0)
+            .unwrap();
+        assert_eq!(j.sweep_gone().unwrap(), 1);
+        assert!(j.recent(10).unwrap().iter().all(|e| e.id != a));
+        assert!(j.recent(10).unwrap().iter().any(|e| e.id == f));
+    }
+
+    #[test]
+    fn migrates_v1_journal() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("j.db");
+        {
+            let c = Connection::open(&p).unwrap();
+            c.execute_batch(SCHEMA).unwrap();
+            c.execute_batch(
+                "ALTER TABLE actions ADD COLUMN size INTEGER; PRAGMA user_version = 1;",
+            )
+            .unwrap();
+        }
+        let j = Journal::open(&p).unwrap();
+        j.record("r", &done("/a", "/b"), 1).unwrap();
+        assert_eq!(j.recent(1).unwrap().len(), 1);
     }
 
     #[test]
@@ -538,7 +642,7 @@ mod tests {
             .conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 1);
+        assert_eq!(v, 2);
         drop(j);
         Journal::open(&p).unwrap(); // idempotente
     }

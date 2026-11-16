@@ -93,7 +93,12 @@ pub fn overview(state: State<AppState>) -> CmdResult<Overview> {
         .collect();
     Ok(Overview {
         stats: journal.stats(&Periods::local(SystemTime::now()), &dirs)?,
-        recent: journal.recent(6)?.iter().map(EntryDto::from).collect(),
+        recent: journal
+            .sweep_gone()
+            .and_then(|_| journal.recent(6))?
+            .iter()
+            .map(EntryDto::from)
+            .collect(),
         folders,
         config_error,
     })
@@ -185,6 +190,7 @@ pub fn history(
     before_id: Option<i64>,
 ) -> CmdResult<HistoryPage> {
     let journal = state.journal()?;
+    journal.sweep_gone()?;
     let mut entries = journal.page(filter.into(), &search, before_id, PAGE + 1)?;
     let has_more = entries.len() > PAGE;
     entries.truncate(PAGE);

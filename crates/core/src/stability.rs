@@ -11,16 +11,28 @@ pub fn is_ignored_name(name: &str) -> bool {
     name.starts_with('.') || TEMP_SUFFIXES.iter().any(|s| name.ends_with(s))
 }
 
-/// Firefox cria `X` vazio como marcador ao lado de `X.part` enquanto baixa;
-/// mover o marcador faz o arquivo real colidir com ele depois.
+/// Download do navegador ainda em andamento para `path`. Chrome usa `X.crdownload`;
+/// Firefox cria `X` vazio como marcador e baixa num `<aleatório>.part`, que no fim
+/// é renomeado por cima do marcador. Mover o marcador faz o real virar "X (1)".
 pub fn download_in_progress(path: &Path) -> bool {
-    let Some(name) = path.file_name() else {
+    let (Some(name), Some(dir)) = (path.file_name(), path.parent()) else {
         return false;
     };
-    TEMP_SUFFIXES.iter().any(|s| {
-        let mut sibling = name.to_os_string();
-        sibling.push(s);
-        path.with_file_name(sibling).exists()
+    let sibling = TEMP_SUFFIXES.iter().any(|s| {
+        let mut n = name.to_os_string();
+        n.push(s);
+        dir.join(n).exists()
+    });
+    sibling || (fs::metadata(path).is_ok_and(|m| m.len() == 0) && has_temp_file(dir))
+}
+
+fn has_temp_file(dir: &Path) -> bool {
+    fs::read_dir(dir).is_ok_and(|entries| {
+        entries.flatten().any(|e| {
+            let n = e.file_name();
+            let n = n.to_string_lossy();
+            TEMP_SUFFIXES.iter().any(|s| n.ends_with(s))
+        })
     })
 }
 
@@ -72,6 +84,23 @@ mod tests {
         assert!(!download_in_progress(&p));
         fs::write(d.path().join("a.deb.part"), "x").unwrap();
         assert!(download_in_progress(&p));
+    }
+
+    #[test]
+    fn empty_placeholder_with_random_part() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("a.deb");
+        fs::write(&p, "").unwrap();
+        let part = d.path().join("kJ3x8aB2.deb.part");
+        fs::write(&part, "x").unwrap();
+        assert!(download_in_progress(&p));
+        // arquivo com conteúdo não é marcador
+        fs::write(&p, "dados").unwrap();
+        assert!(!download_in_progress(&p));
+        // sem .part, vazio é só um arquivo vazio
+        fs::write(&p, "").unwrap();
+        fs::remove_file(&part).unwrap();
+        assert!(!download_in_progress(&p));
     }
 
     #[test]
