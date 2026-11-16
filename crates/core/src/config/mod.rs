@@ -1,3 +1,5 @@
+pub mod edit;
+
 use crate::units::{parse_duration, parse_size};
 use globset::{GlobBuilder, GlobMatcher};
 use regex::Regex;
