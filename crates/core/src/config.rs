@@ -18,6 +18,8 @@ pub struct Config {
 #[derive(Debug)]
 pub struct Rule {
     pub name: String,
+    /// `false` = pausada: a regra fica no config mas não é aplicada.
+    pub enabled: bool,
     pub watch: Vec<PathBuf>,
     pub when: Conditions,
     pub action: Action,
@@ -123,15 +125,24 @@ pub fn parse(src: &str) -> Result<Config, ConfigError> {
             message: "age_scan_interval precisa ser maior que zero".into(),
         });
     }
+    let mut names = std::collections::HashSet::new();
     let rules = raw
         .rules
         .into_iter()
         .map(|spanned| {
             let line = line_of(src, spanned.span().start);
-            compile_rule(spanned.into_inner()).map_err(|message| ConfigError {
+            let at = |message| ConfigError {
                 line: Some(line),
                 message,
-            })
+            };
+            let rule = compile_rule(spanned.into_inner()).map_err(at)?;
+            if !names.insert(rule.name.clone()) {
+                return Err(at(format!(
+                    "regra {:?}: nome repetido (cada regra precisa de um nome único)",
+                    rule.name
+                )));
+            }
+            Ok(rule)
         })
         .collect::<Result<_, _>>()?;
     Ok(Config {
@@ -232,6 +243,7 @@ fn compile_rule(r: RawRule) -> Result<Rule, String> {
 
     Ok(Rule {
         name,
+        enabled: r.enabled,
         watch,
         when,
         action,
@@ -258,11 +270,17 @@ struct RawSettings {
 #[serde(deny_unknown_fields)]
 struct RawRule {
     name: String,
+    #[serde(default = "yes")]
+    enabled: bool,
     watch: Vec<String>,
     #[serde(default)]
     when: RawWhen,
     #[serde(default)]
     action: RawAction,
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Deserialize, Default)]
@@ -385,6 +403,23 @@ mod tests {
             cfg.missing_watch_dirs(),
             vec![Path::new("/nao/existe/a"), Path::new("/nao/existe/b")]
         );
+    }
+
+    #[test]
+    fn enabled_defaults_to_true_and_can_be_false() {
+        let on = parse(&rule(r#"{ ext = ["pdf"] }"#, "{ trash = true }")).unwrap();
+        assert!(on.rules[0].enabled);
+        let src = rule(r#"{ ext = ["pdf"] }"#, "{ trash = true }")
+            .replace("name = \"r\"\n", "name = \"r\"\nenabled = false\n");
+        assert!(!parse(&src).unwrap().rules[0].enabled);
+    }
+
+    #[test]
+    fn duplicate_rule_names_are_rejected() {
+        let r = rule(r#"{ ext = ["pdf"] }"#, "{ trash = true }");
+        let err = parse(&format!("{r}\n{r}")).unwrap_err();
+        assert!(err.message.contains("nome repetido"), "{err}");
+        assert_eq!(err.line, Some(7)); // linha do segundo [[rule]]
     }
 
     #[test]

@@ -21,7 +21,7 @@ pub fn first_match<'a>(rules: &'a [Rule], f: &Facts, now: SystemTime) -> Option<
     let dir = f.path.parent()?;
     rules
         .iter()
-        .find(|r| r.watch.iter().any(|w| w == dir) && matches(&r.when, f, now))
+        .find(|r| r.enabled && r.watch.iter().any(|w| w == dir) && matches(&r.when, f, now))
 }
 
 #[cfg(test)]
@@ -103,6 +103,16 @@ mod tests {
         assert_eq!(first_match(&c.rules, &f, f.modified).unwrap().name, "pdf");
         let g = Facts::sample("a.txt");
         assert_eq!(first_match(&c.rules, &g, g.modified).unwrap().name, "tudo");
+
+        let mut paused = cfg(&[
+            ("pdf", r#"{ ext = ["pdf"] }"#),
+            ("tudo", r#"{ name = "*" }"#),
+        ]);
+        paused.rules[0].enabled = false;
+        assert_eq!(
+            first_match(&paused.rules, &f, f.modified).unwrap().name,
+            "tudo"
+        );
 
         let mut outside = Facts::sample("a.pdf");
         outside.path = "/outra/pasta/a.pdf".into();

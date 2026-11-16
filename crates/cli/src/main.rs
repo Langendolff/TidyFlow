@@ -111,6 +111,9 @@ fn run(cmd: Cmd, config_path: &Path) -> tidyflow_core::Result<()> {
         Cmd::Check { file } => {
             let cfg = config::load(config_path)?;
             println!("config ok: {} regra(s)", cfg.rules.len());
+            for r in cfg.rules.iter().filter(|r| !r.enabled) {
+                println!("pausada: {}", r.name);
+            }
             for dir in cfg.missing_watch_dirs() {
                 println!("aviso: pasta watch não existe: {}", dir.display());
             }
