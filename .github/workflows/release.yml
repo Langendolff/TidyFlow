@@ -1,0 +1,62 @@
+# Compila o pacote Linux para cada tag v* enviada e anexa ao release.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  # Recompila a partir do branch escolhido e anexa a um release que já existe.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag do release (ex.: v0.1.0)
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  linux:
+    # 22.04 para o binário rodar em distros com glibc mais antiga.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependências do Tauri
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Interface
+        run: |
+          npm --prefix ui ci
+          npm --prefix ui run build
+      - name: Binários
+        run: cargo build --release --locked -p tidyflow -p tidyflow-app --features tidyflow-app/custom-protocol
+
+      - name: Pacote
+        run: |
+          PKG=TidyFlow
+          mkdir -p "$PKG/bin" "$PKG/icons" out
+          cp target/release/tidyflow target/release/tidyflow-app "$PKG/bin/"
+          strip "$PKG/bin/"*
+          cp contrib/install.sh config.example.toml LICENSE README.md "$PKG/"
+          mkdir "$PKG/contrib"
+          cp -r contrib/tidyflow.service contrib/tidyflow.desktop contrib/nautilus contrib/nemo "$PKG/contrib/"
+          cp crates/app/icons/32x32.png crates/app/icons/64x64.png crates/app/icons/128x128.png "$PKG/icons/"
+          cp crates/app/icons/128x128@2x.png "$PKG/icons/256x256.png"
+          tar czf "out/TidyFlow-${TAG#v}-linux-x64.tar.gz" "$PKG"
+          (cd out && sha256sum TidyFlow-* > SHA256SUMS.txt)
+
+      - name: Release
+        run: |
+          gh release view "$TAG" || gh release create "$TAG" --title "TidyFlow ${TAG#v}" --generate-notes
+          gh release upload "$TAG" out/* --clobber

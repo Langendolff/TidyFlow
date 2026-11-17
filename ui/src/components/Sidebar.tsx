@@ -2,6 +2,7 @@ import { Circle, FileSearch, ListFilter, RotateCcw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api, errorMessage, type DaemonStatus } from '../api'
 import { useToast } from './toast'
+import icon from '../assets/icon.svg'
 
 export type Screen = 'overview' | 'rules' | 'history' | 'test'
 
@@ -34,9 +35,7 @@ export function Sidebar({ screen, onNavigate }: { screen: Screen; onNavigate: (s
   return (
     <aside className="flex w-58 shrink-0 flex-col gap-1 bg-side px-3.5 py-5">
       <div className="flex items-center gap-2.5 px-2 pt-1 pb-5">
-        <div className="flex size-7.5 items-center justify-center rounded-lg bg-linear-to-b from-brand-light to-brand text-base font-bold text-white">
-          T
-        </div>
+        <img src={icon} alt="" className="size-7.5" />
         <span className="text-[15px] font-semibold text-subtle">TidyFlow</span>
       </div>
       <nav className="flex flex-col gap-1">

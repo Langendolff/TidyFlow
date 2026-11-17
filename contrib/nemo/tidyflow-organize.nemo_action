@@ -1,7 +1,7 @@
 [Nemo Action]
 Name=Organizar com TidyFlow
 Comment=Aplica a primeira regra que casar
-Exec=sh -c 'PATH="$PATH:$HOME/.cargo/bin" exec tidyflow organize "$@"' tidyflow %F
+Exec=sh -c 'PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin" exec tidyflow organize "$@"' tidyflow %F
 Icon-Name=edit-clear-all
 Selection=notnone
 Extensions=nodirs;

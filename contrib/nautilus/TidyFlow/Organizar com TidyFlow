@@ -1,7 +1,7 @@
 #!/bin/sh
 # Nautilus → Scripts → TidyFlow → Organizar com TidyFlow
 # Aplica a primeira regra ativa que casar a cada arquivo selecionado.
-PATH="$PATH:$HOME/.cargo/bin"
+PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin"
 set -f        # nomes com * ou ? não viram glob
 IFS='
 '

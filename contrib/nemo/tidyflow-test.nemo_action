@@ -1,7 +1,7 @@
 [Nemo Action]
 Name=Testar no TidyFlow
 Comment=Mostra qual regra casaria, sem mexer no arquivo
-Exec=sh -c 'PATH="$PATH:$HOME/.cargo/bin" exec tidyflow-app --test "$1"' tidyflow %F
+Exec=sh -c 'PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin" exec tidyflow-app --test "$1"' tidyflow %F
 Icon-Name=system-search
 Selection=s
 Extensions=nodirs;
