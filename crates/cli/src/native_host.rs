@@ -19,6 +19,8 @@ const MAX_MESSAGE: u32 = 1024 * 1024;
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Message {
+    /// A página de configuração da extensão confere se o host está instalado.
+    Ping,
     Started {
         id: i64,
         browser: String,
@@ -87,6 +89,7 @@ fn set_if_absent(path: &Path, name: &str, value: &str) -> io::Result<()> {
 
 pub fn handle(journal: &Journal, msg: Message) -> tidyflow_core::Result<()> {
     match msg {
+        Message::Ping => {}
         Message::Started {
             id,
             browser,
@@ -289,6 +292,7 @@ mod tests {
         }))
         .unwrap();
         handle(&j, renamed).unwrap();
+        handle(&j, serde_json::from_str(r#"{"type":"ping"}"#).unwrap()).unwrap();
         assert!(j.download_at(&p).unwrap().is_none());
     }
 }

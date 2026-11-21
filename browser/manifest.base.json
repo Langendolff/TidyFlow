@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "TidyFlow",
+  "description": "Informa ao TidyFlow de onde veio cada download, para as regras organizarem o arquivo.",
+  "permissions": [
+    "downloads",
+    "nativeMessaging",
+    "tabs",
+    "storage"
+  ],
+  "icons": {
+    "32": "icons/32.png",
+    "64": "icons/64.png",
+    "128": "icons/128.png"
+  },
+  "action": {
+    "default_title": "TidyFlow",
+    "default_icon": {
+      "32": "icons/32.png",
+      "64": "icons/64.png"
+    }
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwzV/YpxVOIIp9SgfwiMFiWvaMF28ohR1tV4JLj3R12j1qkI6PgEvfLttpFChzJHC4gGC1c0vntD3xkJ6vR8zCt7m5wk5xU5zsEPrBUCjKsFuwvYXzxw99wYGR4G7cuO759ZKOMptesu0vyda415IlDc43vrWpgiHKrjf7YobfqMbp9b3tojDwdibhNUZUT3Dr0DNBH1sV+YnzwGprhQMKp1JTn5nwodNS7KrwbbX2xZ6XD3m7GnqvJfnPEkcF3v9OgKFT0IELu+ZQ2bangTS+nFznPuUWrrKNvO4gRpFSGboUQ8UoTGaYAdAQM3Prd0CzzKzZFKAt7SwYFglGF8s/wIDAQAB"
+}

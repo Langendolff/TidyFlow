@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TidyFlow</title>
+    <style>
+      :root {
+        --bg: #f7f8fa;
+        --card: #ffffff;
+        --ink: #111827;
+        --ink-2: #4b5563;
+        --ok: #0e9f6e;
+        --bad: #b42318;
+        --code: #eef0f3;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f1115;
+          --card: #181b21;
+          --ink: #f3f4f6;
+          --ink-2: #9ca3af;
+          --code: #22262e;
+        }
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 15px/1.5 system-ui, sans-serif;
+      }
+      main {
+        max-width: 560px;
+        margin: 48px auto;
+        padding: 28px;
+        background: var(--card);
+        border-radius: 14px;
+      }
+      header {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0;
+      }
+      .ok {
+        color: var(--ok);
+      }
+      .bad {
+        color: var(--bad);
+      }
+      p,
+      li {
+        color: var(--ink-2);
+      }
+      code {
+        background: var(--code);
+        padding: 2px 6px;
+        border-radius: 6px;
+        color: var(--ink);
+      }
+      button {
+        margin-top: 8px;
+        padding: 8px 14px;
+        border: 0;
+        border-radius: 8px;
+        background: var(--ok);
+        color: #fff;
+        font: inherit;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <img src="icons/64.png" width="40" height="40" alt="" />
+        <h1>TidyFlow</h1>
+      </header>
+      <p id="status">Verificando…</p>
+      <section id="help" hidden>
+        <p>Instale o TidyFlow e registre o navegador com:</p>
+        <p><code>tidyflow browser install</code></p>
+        <p>Depois, reinicie o navegador e clique em verificar de novo.</p>
+      </section>
+      <p>
+        A extensão informa ao TidyFlow, no seu computador, a URL e a página de origem de cada download.
+        Downloads de janelas privadas nunca são informados. Nada é enviado pela internet.
+      </p>
+      <button id="retry" type="button">Verificar de novo</button>
+    </main>
+    <script src="setup.js"></script>
+  </body>
+</html>

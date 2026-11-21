@@ -1,0 +1,21 @@
+{
+  "name": "tidyflow-browser",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "lint": "oxlint --deny-warnings src build.mjs && tsc --noEmit && web-ext lint -s dist/firefox --self-hosted",
+    "test": "vitest",
+    "package": "node build.mjs --package"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.7",
+    "@types/node": "^26.6.6",
+    "esbuild": "^0.28.2",
+    "oxlint": "^1.94.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1",
+    "web-ext": "^10.8.0"
+  }
+}
