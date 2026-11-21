@@ -14,10 +14,12 @@ produto**. Os textos abaixo estão prontos para colar.
 - **Categoria:** Gerenciamento de downloads (Download Management)
 - **Site:** https://github.com/Langendolff/TidyFlow
 - **Suporte:** https://github.com/Langendolff/TidyFlow/issues
-- **Licença:** personalizada, "PolyForm Noncommercial 1.0.0", com o texto do `LICENSE`
+- **Licença:** veja [Licença](#licença) abaixo
 - **Política de privacidade:** o texto de [`PRIVACY.md`](../PRIVACY.md)
-- **Capturas de tela:** a página da extensão ("Conectado ao TidyFlow") e a tela Biblioteca
-  do app mostrando a origem dos downloads (1280×800 fica bom)
+- **Capturas de tela** (1280×800, em [`docs/images/amo/`](../docs/images/amo/)), com as legendas:
+  1. `1-conectado.png`: "A extensão conectada ao TidyFlow. Nada sai do seu computador."
+  2. `2-biblioteca.png`: "A Biblioteca do TidyFlow mostra de qual site veio cada download."
+  3. `3-regras.png`: "Regras por site: PDFs do banco vão direto para Documentos/Finanças."
 
 **Resumo (pt-BR, até 250 caracteres):**
 > Diz ao TidyFlow, no seu computador, de onde veio cada download, para as suas regras
@@ -33,7 +35,7 @@ produto**. Os textos abaixo estão prontos para colar.
 > termina. Assim funcionam regras como "PDFs que vieram do site do banco vão para
 > Documentos/Finanças".
 >
-> **Requer o app TidyFlow** (Linux, Windows ou macOS), gratuito e de código aberto:
+> **Requer o app TidyFlow** (Linux, Windows ou macOS), gratuito, com código-fonte disponível:
 > https://github.com/Langendolff/TidyFlow/releases. Sem ele, a extensão não faz nada.
 >
 > A extensão só observa: não baixa, não move e não renomeia arquivos. Os dados vão apenas
@@ -45,12 +47,25 @@ produto**. Os textos abaixo estão prontos para colar.
 > the app the URL, the referring page and the tab title of each download, and when it
 > finishes, so rules like "PDFs from my bank's website go to Documents/Finance" work.
 >
-> **Requires the TidyFlow desktop app** (Linux, Windows or macOS), free and open source:
+> **Requires the TidyFlow desktop app** (Linux, Windows or macOS), free, with source code available:
 > https://github.com/Langendolff/TidyFlow/releases. Without it, the extension does nothing.
 >
 > The extension only observes: it never downloads, moves or renames files. Data goes only to
 > the program on your computer, via native messaging, with no network access. Downloads
 > from private windows are never reported.
+
+## Licença
+
+O TidyFlow usa a PolyForm Noncommercial 1.0.0, que não está na lista do AMO. Na versão,
+em **Licença**, escolha a opção de licença personalizada (*Custom License*, ou "Outra"):
+
+- **Nome:** `PolyForm Noncommercial 1.0.0`
+- **Texto:** o conteúdo inteiro do [`LICENSE`](../LICENSE)
+
+Ela não é de código aberto no sentido da OSI, porque proíbe uso comercial: por isso os
+textos da loja dizem "código-fonte disponível", não "código aberto". A Mozilla aceita
+licenças personalizadas, inclusive restritivas. O que ela exige é o código-fonte legível
+para revisar, e esse vai junto em cada envio.
 
 ## A cada versão: automático
 
