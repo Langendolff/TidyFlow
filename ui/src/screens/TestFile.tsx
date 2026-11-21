@@ -13,6 +13,7 @@ const CHECK_LABEL: Record<ConditionKey, string> = {
   name_regex: 'nome',
   mime: 'mime',
   origin: 'origem',
+  site: 'site',
   size_gt: '',
   size_lt: '',
   older_than: '',
@@ -122,6 +123,12 @@ export function TestFile({ file, onFile }: { file: string | null; onFile: (f: st
                 value={facts.origin_host ?? 'desconhecida'}
                 title={facts.origin_url ?? undefined}
                 accent={!!facts.origin_host}
+              />
+              <Row
+                label="Site"
+                value={facts.site ?? 'desconhecido'}
+                title={facts.referrer_url ?? undefined}
+                accent={!!facts.site}
               />
               <Row label="Tamanho" value={size(facts.size)} />
               <Row label="Modificado" value={relativeTime(facts.modified)} />

@@ -8,6 +8,7 @@ const CONNECTOR: Record<ConditionKey, string> = {
   name_regex: 'casa com',
   mime: 'casa com',
   origin: 'casa com',
+  site: 'casa com',
   size_gt: '',
   size_lt: '',
   older_than: '',

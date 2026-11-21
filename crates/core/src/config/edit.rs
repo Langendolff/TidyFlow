@@ -270,12 +270,13 @@ fn clear_child_positions(t: &mut Table) {
     }
 }
 
-const CONDITION_KEYS: [&str; 8] = [
+const CONDITION_KEYS: [&str; 9] = [
     "ext",
     "name",
     "name_regex",
     "mime",
     "origin",
+    "site",
     "size_gt",
     "size_lt",
     "older_than",
@@ -487,6 +488,19 @@ mod tests {
         }
         assert!(out.contains("when   = { ext = [\"pdf\"], name_regex = \"(?i)nota|nf-?e\" }"));
         assert_eq!(e.drafts().unwrap()[1], d);
+    }
+
+    #[test]
+    fn site_condition_roundtrips() {
+        let mut e = ed();
+        let mut d = draft("Do GitHub");
+        d.when = vec![Condition {
+            key: "site".into(),
+            value: "github.com".into(),
+        }];
+        let i = e.save_rule(None, &d).unwrap();
+        assert!(e.to_string().contains("when   = { site = \"github.com\" }"));
+        assert_eq!(e.drafts().unwrap()[i], d);
     }
 
     #[test]

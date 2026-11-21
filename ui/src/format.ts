@@ -61,6 +61,7 @@ export const CONDITION_LABEL: Record<ConditionKey, string> = {
   name_regex: 'Nome (regex)',
   mime: 'Tipo (MIME)',
   origin: 'Origem do download',
+  site: 'Site (página de origem)',
   size_gt: 'Maior que',
   size_lt: 'Menor que',
   older_than: 'Mais antigo que',
@@ -74,6 +75,7 @@ export const CONDITION_PLACEHOLDER: Record<ConditionKey, string> = {
   name_regex: '(?i)nota|nf-?e',
   mime: 'image/*',
   origin: '*.nubank.com.br',
+  site: 'github.com',
   size_gt: '100MB',
   size_lt: '1MB',
   older_than: '30d',
@@ -119,6 +121,8 @@ function conditionSummary(key: ConditionKey, value: string): string {
       return value
     case 'origin':
       return `origem ${value}`
+    case 'site':
+      return `site ${value}`
     case 'size_gt':
       return `> ${prettySize(value)}`
     case 'size_lt':

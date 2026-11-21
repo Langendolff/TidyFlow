@@ -7,6 +7,12 @@ use std::{
 /// Gravado por Chromium/Chrome, `wget --xattr` e `curl --xattr`.
 pub const ORIGIN_XATTR: &str = "user.xdg.origin.url";
 
+/// Página de onde o download saiu. Gravado pelo Chromium e pelo host da extensão.
+pub const REFERRER_XATTR: &str = "user.xdg.referrer.url";
+
+/// Id da linha em `downloads`, gravado pelo host da extensão quando o download termina.
+pub const DOWNLOAD_XATTR: &str = "user.tidyflow.download";
+
 /// Gravado pelo undo: o engine não reorganiza arquivos com esta marca.
 pub const KEEP_XATTR: &str = "user.tidyflow.keep";
 
@@ -20,7 +26,25 @@ pub struct Facts {
     pub size: u64,
     pub modified: SystemTime,
     pub origin_url: Option<String>,
+    pub referrer_url: Option<String>,
+    /// id do registro em `downloads` (xattr do host da extensão)
+    pub download_id: Option<i64>,
     pub keep: bool,
+}
+
+fn xattr_string(path: &Path, name: &str) -> Option<String> {
+    xattr::get(path, name)
+        .ok()
+        .flatten()
+        .and_then(|v| String::from_utf8(v).ok())
+}
+
+/// Host de uma URL `esquema://[usuário@]host[:porta]/...`, em minúsculas.
+pub fn host_of(url: &str) -> Option<String> {
+    let rest = url.split_once("://")?.1;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let host = authority.rsplit('@').next()?.split(':').next()?;
+    (!matches!(host, "" | "." | "..")).then(|| host.to_ascii_lowercase())
 }
 
 impl Facts {
@@ -34,10 +58,7 @@ impl Facts {
                 .to_string(),
         };
         // Falha de xattr (fs sem suporte) = sem origem.
-        let origin_url = xattr::get(path, ORIGIN_XATTR)
-            .ok()
-            .flatten()
-            .and_then(|v| String::from_utf8(v).ok());
+        let origin_url = xattr_string(path, ORIGIN_XATTR);
         Ok(Facts {
             path: path.to_path_buf(),
             name: lossy(path.file_name()).unwrap_or_default(),
@@ -47,15 +68,24 @@ impl Facts {
             size: meta.len(),
             modified: meta.modified()?,
             origin_url,
+            referrer_url: xattr_string(path, REFERRER_XATTR),
+            download_id: xattr_string(path, DOWNLOAD_XATTR).and_then(|v| v.trim().parse().ok()),
             keep: xattr::get(path, KEEP_XATTR).is_ok_and(|v| v.is_some()),
         })
     }
 
     pub fn origin_host(&self) -> Option<String> {
-        let rest = self.origin_url.as_deref()?.split_once("://")?.1;
-        let authority = rest.split(['/', '?', '#']).next()?;
-        let host = authority.rsplit('@').next()?.split(':').next()?;
-        (!matches!(host, "" | "." | "..")).then(|| host.to_ascii_lowercase())
+        host_of(self.origin_url.as_deref()?)
+    }
+
+    pub fn referrer_host(&self) -> Option<String> {
+        host_of(self.referrer_url.as_deref()?)
+    }
+
+    /// Site que o usuário reconhece: o da página de origem; sem ela, o host do arquivo.
+    /// O arquivo muitas vezes vem de uma CDN (`objects.githubusercontent.com`).
+    pub fn site(&self) -> Option<String> {
+        self.referrer_host().or_else(|| self.origin_host())
     }
 
     pub fn age(&self, now: SystemTime) -> Duration {
@@ -77,6 +107,8 @@ impl Facts {
             size: 0,
             modified,
             origin_url: None,
+            referrer_url: None,
+            download_id: None,
             keep: false,
         }
     }
@@ -97,6 +129,8 @@ impl Facts {
             size: 0,
             modified: std::time::UNIX_EPOCH + Duration::from_secs(1_781_524_800), // 2026-06-15 12:00 UTC
             origin_url: None,
+            referrer_url: None,
+            download_id: None,
             keep: false,
         }
     }
@@ -159,6 +193,30 @@ mod tests {
         .unwrap();
         let f = Facts::read(&p).unwrap();
         assert_eq!(f.origin_host().as_deref(), Some("app.nubank.com.br"));
+    }
+
+    #[test]
+    fn reads_referrer_and_download_xattrs() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("a.zip");
+        fs::write(&p, "x").unwrap();
+        if xattr::set(&p, REFERRER_XATTR, b"https://github.com/a/b/releases").is_err() {
+            return; // fs sem xattr user.*
+        }
+        xattr::set(&p, DOWNLOAD_XATTR, b"42").unwrap();
+        let f = Facts::read(&p).unwrap();
+        assert_eq!(f.referrer_host().as_deref(), Some("github.com"));
+        assert_eq!(f.download_id, Some(42));
+    }
+
+    #[test]
+    fn site_prefers_referrer() {
+        let mut f = Facts::sample("a.zip");
+        assert_eq!(f.site(), None);
+        f.origin_url = Some("https://objects.githubusercontent.com/x".into());
+        assert_eq!(f.site().as_deref(), Some("objects.githubusercontent.com"));
+        f.referrer_url = Some("https://github.com/a/b/releases".into());
+        assert_eq!(f.site().as_deref(), Some("github.com"));
     }
 
     #[test]

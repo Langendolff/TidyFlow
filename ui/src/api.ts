@@ -88,6 +88,7 @@ export type ConditionKey =
   | 'name_regex'
   | 'mime'
   | 'origin'
+  | 'site'
   | 'size_gt'
   | 'size_lt'
   | 'older_than'
@@ -144,6 +145,8 @@ export interface Facts {
   mime: string
   origin_url: string | null
   origin_host: string | null
+  referrer_url: string | null
+  site: string | null
   size: number
   modified: number
   keep: boolean

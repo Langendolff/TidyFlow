@@ -177,6 +177,11 @@ fn run(cmd: Cmd, config_path: &Path) -> tidyflow_core::Result<()> {
                     f.mime, f.ext, f.size
                 );
                 println!("origem: {}", f.origin_url.as_deref().unwrap_or("(nenhuma)"));
+                println!(
+                    "página de origem: {}",
+                    f.referrer_url.as_deref().unwrap_or("(nenhuma)")
+                );
+                println!("site: {}", f.site().as_deref().unwrap_or("(desconhecido)"));
                 let journal = Journal::open(&journal::default_path())?;
                 let by_journal = journal.was_undone_src(&file)?;
                 if f.keep || by_journal {

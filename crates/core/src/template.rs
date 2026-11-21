@@ -15,6 +15,7 @@ pub fn render(template: &str, f: &Facts) -> String {
             "{origin_host}",
             &f.origin_host().unwrap_or_else(|| "unknown".into()),
         )
+        .replace("{site}", &f.site().unwrap_or_else(|| "unknown".into()))
 }
 
 #[cfg(test)]
@@ -31,6 +32,12 @@ mod tests {
         );
         f.origin_url = Some("https://nubank.com.br/x".into());
         assert_eq!(render("{origin_host}", &f), "nubank.com.br");
+        assert_eq!(render("{site}", &f), "nubank.com.br");
+        f.referrer_url = Some("https://app.nubank.com.br/faturas".into());
+        assert_eq!(
+            render("{site}/{origin_host}", &f),
+            "app.nubank.com.br/nubank.com.br"
+        );
         assert_eq!(render("sem variáveis", &f), "sem variáveis");
     }
 }

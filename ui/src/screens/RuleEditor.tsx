@@ -14,7 +14,7 @@ const TABS: { kind: Kind; label: string }[] = [
   { kind: 'trash', label: 'Lixeira' },
 ]
 
-const VARS = ['{year}', '{month}', '{day}', '{name}', '{ext}', '{origin_host}']
+const VARS = ['{year}', '{month}', '{day}', '{name}', '{ext}', '{origin_host}', '{site}']
 
 const TARGET_LABEL: Record<Exclude<Kind, 'trash'>, string> = {
   move: 'Pasta de destino',

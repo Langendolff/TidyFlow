@@ -14,6 +14,8 @@ const data: Inspect = {
     mime: 'application/pdf',
     origin_url: 'https://app.nubank.com.br/x',
     origin_host: 'app.nubank.com.br',
+    referrer_url: 'https://nubank.com.br/faturas',
+    site: 'nubank.com.br',
     size: 184_000,
     modified: Math.floor(Date.now() / 1000) - 240,
     keep: false,
@@ -49,6 +51,7 @@ describe('TestFile', () => {
     mockBackend({ inspect: () => data })
     render(<TestFile file="/h/Downloads/fatura.pdf" onFile={vi.fn()} />)
     expect(await screen.findByText('app.nubank.com.br')).toBeInTheDocument()
+    expect(screen.getByText('nubank.com.br')).toHaveAttribute('title', 'https://nubank.com.br/faturas')
     expect(screen.getByText('184 KB')).toBeInTheDocument()
     expect(screen.getByText('vence')).toBeInTheDocument()
     expect(screen.getByText('não casa')).toBeInTheDocument()

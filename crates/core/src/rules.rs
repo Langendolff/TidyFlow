@@ -33,6 +33,10 @@ pub fn explain(c: &Conditions, f: &Facts, now: SystemTime) -> Vec<Check> {
         let ok = f.origin_host().is_some_and(|h| g.is_match(&h));
         push("origin", g.glob().glob().to_string(), ok);
     }
+    if let Some(g) = &c.site {
+        let ok = f.site().is_some_and(|h| g.is_match(&h));
+        push("site", g.glob().glob().to_string(), ok);
+    }
     if let Some(n) = c.size_gt {
         push("size_gt", format!("> {}", format_size(n)), f.size > n);
     }
@@ -102,6 +106,7 @@ mod tests {
         f.mime = "application/pdf".into();
         f.size = 5_000;
         f.origin_url = Some("https://www.receita.gov.br/x".into());
+        f.referrer_url = Some("https://portal.gov.br/servicos".into());
 
         let table = [
             (r#"{ ext = ["pdf"] }"#, true),
@@ -114,6 +119,8 @@ mod tests {
             (r#"{ mime = "image/*" }"#, false),
             (r#"{ origin = "*.gov.br" }"#, true),
             (r#"{ origin = "*.nubank.com.br" }"#, false),
+            (r#"{ site = "portal.gov.br" }"#, true), // site vem do referrer
+            (r#"{ site = "www.receita.gov.br" }"#, false),
             (r#"{ size_gt = "1KB" }"#, true),
             (r#"{ size_gt = "5KB" }"#, false), // estritamente maior
             (r#"{ size_lt = "1MB" }"#, true),
@@ -162,6 +169,19 @@ mod tests {
                 ("older_than", "> 14 dias", false),
             ]
         );
+    }
+
+    #[test]
+    fn explain_puts_site_after_origin() {
+        let c = cfg(&[("r", r#"{ site = "github.com", origin = "*", mime = "*" }"#)]);
+        let mut f = Facts::sample("a.zip");
+        f.origin_url = Some("https://objects.githubusercontent.com/x".into());
+        f.referrer_url = Some("https://github.com/a/b".into());
+        let keys: Vec<_> = explain(&c.rules[0].when, &f, f.modified)
+            .iter()
+            .map(|c| (c.key, c.ok))
+            .collect();
+        assert_eq!(keys, vec![("mime", true), ("origin", true), ("site", true)]);
     }
 
     #[test]

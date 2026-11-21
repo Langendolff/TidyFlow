@@ -52,7 +52,7 @@ describe('RuleEditor', () => {
   })
 
   it('does not offer types used elsewhere and hides the button when all are used', () => {
-    const keys = ['ext', 'name', 'name_regex', 'mime', 'origin', 'size_gt', 'size_lt', 'older_than'] as const
+    const keys = ['ext', 'name', 'name_regex', 'mime', 'origin', 'site', 'size_gt', 'size_lt', 'older_than'] as const
     editor(rule('r', { when: keys.map((key) => ({ key, value: 'x' })) }))
     expect(screen.queryByText('+ Adicionar condição')).toBeNull()
     const first = screen.getAllByLabelText('Tipo de condição')[0]

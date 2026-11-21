@@ -34,6 +34,8 @@ pub struct Conditions {
     pub name_regex: Option<Regex>,
     pub mime: Option<GlobMatcher>,
     pub origin: Option<GlobMatcher>,
+    /// host da página de origem (referrer); sem ela, o da origem
+    pub site: Option<GlobMatcher>,
     pub size_gt: Option<u64>,
     pub size_lt: Option<u64>,
     pub older_than: Option<Duration>,
@@ -46,6 +48,7 @@ impl Conditions {
             && self.name_regex.is_none()
             && self.mime.is_none()
             && self.origin.is_none()
+            && self.site.is_none()
             && self.size_gt.is_none()
             && self.size_lt.is_none()
             && self.older_than.is_none()
@@ -204,6 +207,7 @@ fn compile_rule(r: RawRule) -> Result<Rule, String> {
             .map_err(err)?,
         mime: w.mime.as_deref().map(glob).transpose().map_err(err)?,
         origin: w.origin.as_deref().map(glob).transpose().map_err(err)?,
+        site: w.site.as_deref().map(glob).transpose().map_err(err)?,
         size_gt: w
             .size_gt
             .as_deref()
@@ -293,6 +297,7 @@ struct RawWhen {
     name_regex: Option<String>,
     mime: Option<String>,
     origin: Option<String>,
+    site: Option<String>,
     size_gt: Option<String>,
     size_lt: Option<String>,
     older_than: Option<String>,
@@ -344,6 +349,14 @@ mod tests {
             r.action,
             Action::Move(format!("{}/Docs/{{year}}/", crate::home()))
         );
+    }
+
+    #[test]
+    fn site_alone_is_a_condition() {
+        let c = parse(&rule(r#"{ site = "*.github.com" }"#, "{ trash = true }")).unwrap();
+        assert!(c.rules[0].when.site.is_some());
+        let err = parse(&rule(r#"{ site = "[" }"#, "{ trash = true }")).unwrap_err();
+        assert!(err.message.contains("glob inválido"), "{err}");
     }
 
     #[test]
