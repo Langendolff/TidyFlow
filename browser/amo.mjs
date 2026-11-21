@@ -49,8 +49,8 @@ export function metadata(licenseText = readFileSync(new URL('../LICENSE', import
     categories: { firefox: ['download-management'] },
     summary: SUMMARY,
     description: DESCRIPTION,
-    homepage: { url: { 'en-US': REPO } },
-    support_url: { url: { 'en-US': `${REPO}/issues` } },
+    homepage: { 'en-US': REPO },
+    support_url: { 'en-US': `${REPO}/issues` },
     version: {
       // A PolyForm Noncommercial não está na lista do AMO: vai como licença personalizada.
       custom_license: {
