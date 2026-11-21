@@ -33,12 +33,35 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: ui/package-lock.json
+          cache-dependency-path: |
+            ui/package-lock.json
+            browser/package-lock.json
 
       - name: Interface
         run: |
           npm --prefix ui ci
           npm --prefix ui run build
+      - name: Extensão de navegador
+        run: |
+          npm --prefix browser ci
+          npm --prefix browser run package
+          mkdir -p out
+          cp browser/dist/tidyflow-chromium-*.zip out/
+      # O .xpi do Firefox só é instalável assinado. As chaves de API do AMO ficam nos
+      # segredos do repositório; sem elas, o release sai sem o .xpi.
+      - name: Assinar extensão do Firefox
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          if [ -z "$AMO_JWT_ISSUER" ] || [ -z "$AMO_JWT_SECRET" ]; then
+            echo "::warning::sem AMO_JWT_ISSUER/AMO_JWT_SECRET: release sem o .xpi do Firefox"
+            exit 0
+          fi
+          cd browser
+          npx web-ext sign --channel=unlisted -s dist/firefox -a signed \
+            --api-key="$AMO_JWT_ISSUER" --api-secret="$AMO_JWT_SECRET"
+          cp signed/*.xpi "../out/tidyflow-firefox-${TAG#v}.xpi"
       - name: Binários
         run: cargo build --release --locked -p tidyflow -p tidyflow-app --features tidyflow-app/custom-protocol
 
@@ -54,7 +77,7 @@ jobs:
           cp crates/app/icons/32x32.png crates/app/icons/64x64.png crates/app/icons/128x128.png "$PKG/icons/"
           cp crates/app/icons/128x128@2x.png "$PKG/icons/256x256.png"
           tar czf "out/TidyFlow-${TAG#v}-linux-x64.tar.gz" "$PKG"
-          (cd out && sha256sum TidyFlow-* > SHA256SUMS.txt)
+          (cd out && sha256sum TidyFlow-* tidyflow-* > SHA256SUMS.txt)
 
       - name: Release
         run: |

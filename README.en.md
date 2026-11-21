@@ -59,6 +59,7 @@ keyboard shortcut.
 | ↩️ **Everything undoable** | SQLite history, undo from the notification, `tidyflow undo` or a shortcut. |
 | 🛡️ **Nothing is overwritten** | If the destination exists, the action fails and is logged as an error. |
 | ⏳ **Waits for downloads to finish** | Partial files (`.part`, `.crdownload`) and files still changing are skipped. |
+| 🧩 **Browser extension** | Optional, for Firefox and Chromium: reports each download's source page and tells TidyFlow when it finishes. |
 | 🖥️ **Optional UI** | Tauri + React app to see activity, edit rules and test a file. |
 | 📂 **Context menu** | "Organizar com TidyFlow" and "Testar no TidyFlow" in Nautilus and Nemo. |
 | 📴 **100% local** | No accounts, no cloud, no telemetry. |
@@ -124,6 +125,7 @@ journalctl --user -u tidyflow -f     # logs
 | `tidyflow undo [ID]` | undoes the last action (or action ID) |
 | `tidyflow history [-n N]` | latest actions |
 | `tidyflow check [FILE]` | validates the config / shows which rule would match |
+| `tidyflow browser install` | registers the browser extension's host (`uninstall` removes it) |
 
 Hyprland: `bind = SUPER, U, exec, tidyflow undo` to undo from the keyboard.
 
@@ -133,9 +135,9 @@ See [`config.example.toml`](config.example.toml) for a full config.
 
 | | |
 |---|---|
-| **Conditions** (all must match) | `ext`, `name` (glob), `name_regex`, `mime` (glob), `origin` (host glob), `size_gt`, `size_lt` (`"100MB"`, `"1MiB"`), `older_than` (`"30d"`, `"12h"`) |
+| **Conditions** (all must match) | `ext`, `name` (glob), `name_regex`, `mime` (glob), `origin` (host glob), `site` (glob of the source page's host), `size_gt`, `size_lt` (`"100MB"`, `"1MiB"`), `older_than` (`"30d"`, `"12h"`) |
 | **Actions** (one per rule) | `move`, `copy`, `rename`, `trash` |
-| **Variables** | `{year}` `{month}` `{day}` (modification date), `{ext}`, `{name}`, `{origin_host}` |
+| **Variables** | `{year}` `{month}` `{day}` (modification date), `{ext}`, `{name}`, `{origin_host}`, `{site}` |
 
 The first matching rule wins. `enabled = false` pauses a rule without deleting it. Each rule
 needs a unique name. A `rename` rule whose result still matches the same rule renames the
@@ -147,7 +149,11 @@ starts watching it once it appears (retrying every 60s).
 ### Download origin
 
 Read from the `user.xdg.origin.url` extended attribute. Written by: Chromium/Chrome,
-`wget --xattr`, `curl --xattr`. Firefox: to be confirmed.
+`wget --xattr`, `curl --xattr` and, on Firefox, by the [browser extension](#browser-extension).
+
+`origin` is the host the file was downloaded from, which is often a CDN
+(`objects.githubusercontent.com`). `site` is the host of the page you clicked on
+(`github.com`), read from `user.xdg.referrer.url`; without it, `site` uses the origin.
 
 ### Undo
 
@@ -198,6 +204,24 @@ mark (which is removed). Be careful with broad rules like `older_than` + `trash`
 apply to an old file in another folder. The action goes into the history and can be undone
 from the notification, like the others.
 
+## Browser extension
+
+Optional. Tells TidyFlow each download's URL, source page and tab title, and when it
+finishes. With it, `origin` and `site` rules work on Firefox, and the daemon knows exactly
+when it can touch the file instead of guessing from `.part` files.
+
+```sh
+tidyflow browser install   # install.sh already does this
+```
+
+Then install the extension: on Firefox, the `.xpi` from the release; on Chromium, Chrome or
+Brave, unzip the release zip and load it in `chrome://extensions` (developer mode → load
+unpacked). Details in [`browser/README.md`](browser/README.md).
+
+The extension only observes: it doesn't download, move or rename anything. Downloads from
+private windows are never reported. It talks to the `tidyflow` binary on your computer
+through native messaging, with no network.
+
 ## Architecture
 
 ```
@@ -207,6 +231,7 @@ TidyFlow/
 │   ├── cli/    # `tidyflow` binary: daemon, run, organize, undo, history, check
 │   └── app/    # `tidyflow-app` binary: Tauri 2
 ├── ui/         # React + Vite + Tailwind, the app's UI
+├── browser/    # browser extension (WebExtension, TypeScript)
 └── contrib/    # systemd unit, .desktop, install.sh, Nautilus scripts and Nemo actions
 ```
 

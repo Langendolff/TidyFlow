@@ -15,6 +15,13 @@ install -Dm755 bin/tidyflow "$BIN/tidyflow"
 install -Dm755 bin/tidyflow-app "$BIN/tidyflow-app"
 echo "binários em $BIN"
 
+# Host de native messaging para a extensão de navegador (só onde há navegador).
+if "$BIN/tidyflow" browser install >/dev/null; then
+  echo "host da extensão de navegador registrado"
+else
+  echo "aviso: não foi possível registrar o host da extensão (rode: tidyflow browser install)"
+fi
+
 if [ -e "$CONFIG/tidyflow/config.toml" ]; then
   echo "config mantido: $CONFIG/tidyflow/config.toml"
 else
@@ -50,6 +57,7 @@ Pronto. Próximos passos:
   1. Revise as regras em $CONFIG/tidyflow/config.toml
   2. tidyflow check && tidyflow run --dry-run
   3. systemctl --user enable --now tidyflow
+  4. Opcional: instale a extensão de navegador (veja o README, seção "Extensão de navegador")
 EOF
 case ":$PATH:" in
   *":$BIN:"*) ;;
