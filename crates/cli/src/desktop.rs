@@ -5,18 +5,25 @@ use std::{
     thread::JoinHandle,
     time::{Duration, Instant},
 };
-use tidyflow_core::{
-    actions::{Done, Kind},
-    engine,
-    journal::Journal,
-};
+use tidyflow_core::actions::{Done, Kind};
+#[cfg(not(any(target_os = "macos", windows)))]
+use tidyflow_core::{engine, journal::Journal};
 use tracing::warn;
 
 /// Threads das notificações abertas, para `wait` (a CLI não pode sair antes do clique).
 static OPEN: Mutex<Vec<JoinHandle<()>>> = Mutex::new(Vec::new());
 
+/// macOS e Windows: sem botões (o notify-rust só os entrega pelo D-Bus); desfazer
+/// fica no app e no `tidyflow undo`.
+#[cfg(any(target_os = "macos", windows))]
+pub fn organized(_journal_path: PathBuf, _id: i64, done: &Done, rule: &str) {
+    let (summary, body) = message(done, rule);
+    show(&summary, &body);
+}
+
 // ponytail: uma thread por notificação, bloqueada até ela fechar. Trocar por um
 // único loop D-Bus se muitas notificações simultâneas virarem problema.
+#[cfg(not(any(target_os = "macos", windows)))]
 pub fn organized(journal_path: PathBuf, id: i64, done: &Done, rule: &str) {
     let (summary, body) = message(done, rule);
     let folder = done
@@ -97,7 +104,7 @@ pub fn message(done: &Done, rule: &str) -> (String, String) {
 }
 
 fn tilde(p: &Path) -> String {
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = tidyflow_core::home();
     match p.strip_prefix(&home) {
         Ok(rest) if !home.is_empty() => format!("~/{}", rest.display()),
         _ => p.display().to_string(),
@@ -105,22 +112,20 @@ fn tilde(p: &Path) -> String {
 }
 
 pub fn error(body: &str) {
-    if let Err(e) = Notification::new()
-        .appname("TidyFlow")
-        .summary("TidyFlow: erro")
-        .body(body)
-        .show()
-    {
-        warn!("notificação falhou: {e}");
-    }
+    show("TidyFlow: erro", body);
 }
 
 pub fn summary(body: &str) {
+    show("TidyFlow", body);
+}
+
+fn show(summary: &str, body: &str) {
     if let Err(e) = Notification::new()
         .appname("TidyFlow")
-        .summary("TidyFlow")
+        .summary(summary)
         .body(body)
         .show()
+        .map(drop)
     {
         warn!("notificação falhou: {e}");
     }
@@ -132,7 +137,7 @@ mod tests {
 
     #[test]
     fn messages() {
-        let home = std::env::var("HOME").unwrap();
+        let home = tidyflow_core::home();
         let mv = Done {
             kind: Kind::Move,
             src: "/dl/fatura.pdf".into(),

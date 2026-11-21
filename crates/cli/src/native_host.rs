@@ -9,8 +9,8 @@ use std::{
 };
 use tidyflow_core::{
     downloads::{DownloadState, Started},
-    facts::{DOWNLOAD_XATTR, ORIGIN_XATTR, REFERRER_XATTR},
     journal::Journal,
+    meta::{self, Tag},
 };
 
 /// O navegador não manda nada perto disso; acima é erro de protocolo.
@@ -80,13 +80,6 @@ pub fn write_message(w: &mut impl Write, v: &serde_json::Value) -> io::Result<()
     w.flush()
 }
 
-fn set_if_absent(path: &Path, name: &str, value: &str) -> io::Result<()> {
-    if xattr::get(path, name)?.is_none() {
-        xattr::set(path, name, value.as_bytes())?;
-    }
-    Ok(())
-}
-
 pub fn handle(journal: &Journal, msg: Message) -> tidyflow_core::Result<()> {
     match msg {
         Message::Ping => {}
@@ -141,16 +134,19 @@ pub fn handle(journal: &Journal, msg: Message) -> tidyflow_core::Result<()> {
             }
             let xattrs = || -> io::Result<()> {
                 if let Some(url) = &d.url {
-                    set_if_absent(&path, ORIGIN_XATTR, url)?;
+                    meta::set_if_absent(&path, Tag::Origin, url)?;
                 }
                 if let Some(r) = &d.referrer {
-                    set_if_absent(&path, REFERRER_XATTR, r)?;
+                    meta::set_if_absent(&path, Tag::Referrer, r)?;
                 }
                 // Sempre gravado: garante o evento de metadados para o daemon.
-                xattr::set(&path, DOWNLOAD_XATTR, d.id.to_string().as_bytes())
+                meta::set(&path, Tag::Download, &d.id.to_string())
             };
             if let Err(e) = xattrs() {
-                eprintln!("não foi possível gravar xattrs em {}: {e}", path.display());
+                eprintln!(
+                    "não foi possível gravar metadados em {}: {e}",
+                    path.display()
+                );
             }
         }
     }
@@ -226,7 +222,7 @@ mod tests {
     }
 
     fn xattr_ok(p: &Path) -> bool {
-        xattr::set(p, "user.tidyflow.test", b"1").is_ok()
+        meta::set(p, Tag::Keep, "1").is_ok() && meta::remove(p, Tag::Keep).is_ok()
     }
 
     #[test]
@@ -244,10 +240,10 @@ mod tests {
         assert_eq!(row.state, DownloadState::Complete);
         assert_eq!(row.url.as_deref(), Some("https://cdn.example.com/a.pdf"));
         assert_eq!(row.page_title, None); // vazio não é título
-        let get = |n| String::from_utf8(xattr::get(&p, n).unwrap().unwrap()).unwrap();
-        assert_eq!(get(DOWNLOAD_XATTR), row.id.to_string());
-        assert_eq!(get(ORIGIN_XATTR), "https://cdn.example.com/a.pdf");
-        assert_eq!(get(REFERRER_XATTR), "https://example.com/page");
+        let get = |t| meta::own(&p, t).unwrap();
+        assert_eq!(get(Tag::Download), row.id.to_string());
+        assert_eq!(get(Tag::Origin), "https://cdn.example.com/a.pdf");
+        assert_eq!(get(Tag::Referrer), "https://example.com/page");
     }
 
     #[test]
@@ -259,12 +255,12 @@ mod tests {
         if !xattr_ok(&p) {
             return;
         }
-        xattr::set(&p, ORIGIN_XATTR, b"https://chromium.wrote/this").unwrap();
+        meta::set(&p, Tag::Origin, "https://chromium.wrote/this").unwrap();
         handle(&j, started(&p)).unwrap();
         handle(&j, finished(&p)).unwrap();
         assert_eq!(
-            xattr::get(&p, ORIGIN_XATTR).unwrap().unwrap(),
-            b"https://chromium.wrote/this"
+            meta::own(&p, Tag::Origin).unwrap(),
+            "https://chromium.wrote/this"
         );
     }
 

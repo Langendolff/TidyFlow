@@ -1,20 +1,9 @@
+use crate::meta::{self, Tag};
 use std::{
     fs, io,
     path::{Path, PathBuf},
     time::{Duration, SystemTime},
 };
-
-/// Gravado por Chromium/Chrome, `wget --xattr` e `curl --xattr`.
-pub const ORIGIN_XATTR: &str = "user.xdg.origin.url";
-
-/// Página de onde o download saiu. Gravado pelo Chromium e pelo host da extensão.
-pub const REFERRER_XATTR: &str = "user.xdg.referrer.url";
-
-/// Id da linha em `downloads`, gravado pelo host da extensão quando o download termina.
-pub const DOWNLOAD_XATTR: &str = "user.tidyflow.download";
-
-/// Gravado pelo undo: o engine não reorganiza arquivos com esta marca.
-pub const KEEP_XATTR: &str = "user.tidyflow.keep";
 
 #[derive(Debug, Clone)]
 pub struct Facts {
@@ -30,13 +19,6 @@ pub struct Facts {
     /// id do registro em `downloads` (xattr do host da extensão)
     pub download_id: Option<i64>,
     pub keep: bool,
-}
-
-fn xattr_string(path: &Path, name: &str) -> Option<String> {
-    xattr::get(path, name)
-        .ok()
-        .flatten()
-        .and_then(|v| String::from_utf8(v).ok())
 }
 
 /// Host de uma URL `esquema://[usuário@]host[:porta]/...`, em minúsculas.
@@ -57,8 +39,6 @@ impl Facts {
                 .first_or_octet_stream()
                 .to_string(),
         };
-        // Falha de xattr (fs sem suporte) = sem origem.
-        let origin_url = xattr_string(path, ORIGIN_XATTR);
         Ok(Facts {
             path: path.to_path_buf(),
             name: lossy(path.file_name()).unwrap_or_default(),
@@ -67,10 +47,10 @@ impl Facts {
             mime,
             size: meta.len(),
             modified: meta.modified()?,
-            origin_url,
-            referrer_url: xattr_string(path, REFERRER_XATTR),
-            download_id: xattr_string(path, DOWNLOAD_XATTR).and_then(|v| v.trim().parse().ok()),
-            keep: xattr::get(path, KEEP_XATTR).is_ok_and(|v| v.is_some()),
+            origin_url: meta::get(path, Tag::Origin),
+            referrer_url: meta::get(path, Tag::Referrer),
+            download_id: meta::own(path, Tag::Download).and_then(|v| v.trim().parse().ok()),
+            keep: meta::has(path, Tag::Keep),
         })
     }
 
@@ -247,12 +227,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("fatura.pdf");
         fs::write(&p, "x").unwrap();
-        xattr::set(
+        if meta::set(
             &p,
-            ORIGIN_XATTR,
-            b"https://user:pw@App.Nubank.com.br:443/x?y=1",
+            Tag::Origin,
+            "https://user:pw@App.Nubank.com.br:443/x?y=1",
         )
-        .unwrap();
+        .is_err()
+        {
+            return; // fs sem xattr user.*
+        }
         let f = Facts::read(&p).unwrap();
         assert_eq!(f.origin_host().as_deref(), Some("app.nubank.com.br"));
     }
@@ -262,10 +245,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("a.zip");
         fs::write(&p, "x").unwrap();
-        if xattr::set(&p, REFERRER_XATTR, b"https://github.com/a/b/releases").is_err() {
+        if meta::set(&p, Tag::Referrer, "https://github.com/a/b/releases").is_err() {
             return; // fs sem xattr user.*
         }
-        xattr::set(&p, DOWNLOAD_XATTR, b"42").unwrap();
+        meta::set(&p, Tag::Download, "42").unwrap();
         let f = Facts::read(&p).unwrap();
         assert_eq!(f.referrer_host().as_deref(), Some("github.com"));
         assert_eq!(f.download_id, Some(42));

@@ -20,7 +20,7 @@ fn env() -> Env {
     fs::write(
         &cfg,
         format!(
-            "[settings]\nnotify = false\n\n[[rule]]\nname = \"pdfs\"\nwatch = [\"{}\"]\nwhen = {{ ext = [\"pdf\"] }}\naction = {{ move = \"{}\" }}\n",
+            "[settings]\nnotify = false\n\n[[rule]]\nname = \"pdfs\"\nwatch = ['{}']\nwhen = {{ ext = [\"pdf\"] }}\naction = {{ move = '{}' }}\n",
             watch.display(),
             out.display()
         ),
@@ -42,7 +42,7 @@ fn write_old(p: &std::path::Path) {
 
 fn cmd(e: &Env) -> Command {
     let mut c = Command::new(env!("CARGO_BIN_EXE_tidyflow"));
-    c.env("XDG_DATA_HOME", e.d.path())
+    c.env("TIDYFLOW_DATA_DIR", e.d.path().join("tidyflow"))
         .arg("--config")
         .arg(&e.cfg);
     c
@@ -274,7 +274,7 @@ fn daemon_waits_for_the_browser_to_finish() {
     let p = e.watch.join("a.pdf");
     let probe = e.d.path().join("probe");
     fs::write(&probe, "x").unwrap();
-    if xattr::set(&probe, "user.tidyflow.test", b"1").is_err() {
+    if tidyflow_core::meta::set(&probe, tidyflow_core::meta::Tag::Keep, "1").is_err() {
         return; // fs sem xattr user.*: o evento de fim não chega
     }
     let mut child = cmd(&e).arg("daemon").spawn().unwrap();

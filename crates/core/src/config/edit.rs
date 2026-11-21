@@ -622,6 +622,7 @@ mod tests {
         assert!(!d.path().join("sub/.config.toml.tidyflow-tmp").exists());
     }
 
+    #[cfg(unix)]
     #[test]
     fn write_keeps_symlink() {
         let d = tempfile::tempdir().unwrap();

@@ -6,7 +6,6 @@ use rusqlite::{Connection, OptionalExtension, Row, params, types::Type};
 use std::{
     ffi::OsString,
     fs,
-    os::unix::ffi::{OsStrExt, OsStringExt},
     path::{Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -140,7 +139,7 @@ pub struct Journal {
 }
 
 pub fn default_path() -> PathBuf {
-    crate::xdg_dir("XDG_DATA_HOME", ".local/share").join("tidyflow/journal.db")
+    crate::data_dir().join("journal.db")
 }
 
 impl Journal {
@@ -415,11 +414,12 @@ pub(crate) fn now() -> i64 {
 }
 
 pub(crate) fn bytes(p: &Path) -> &[u8] {
-    p.as_os_str().as_bytes()
+    p.as_os_str().as_encoded_bytes()
 }
 
 pub(crate) fn path(b: Vec<u8>) -> PathBuf {
-    PathBuf::from(OsString::from_vec(b))
+    // SAFETY: os bytes saem de `bytes()` neste mesmo sistema (o banco é local).
+    PathBuf::from(unsafe { OsString::from_encoded_bytes_unchecked(b) })
 }
 
 pub(crate) fn entry(r: &Row) -> rusqlite::Result<Entry> {
@@ -440,7 +440,6 @@ pub(crate) fn entry(r: &Row) -> rusqlite::Result<Entry> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
 
     fn open() -> (tempfile::TempDir, Journal) {
         let d = tempfile::tempdir().unwrap();
@@ -525,8 +524,10 @@ mod tests {
         assert!(j.get(999).unwrap().is_none());
     }
 
+    #[cfg(unix)]
     #[test]
     fn non_utf8_paths_survive() {
+        use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
         let (_d, j) = open();
         let weird = PathBuf::from(OsStr::from_bytes(b"/a/\xff.bin"));
         let id = j

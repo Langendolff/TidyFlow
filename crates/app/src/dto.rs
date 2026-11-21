@@ -71,7 +71,7 @@ impl From<std::io::Error> for CmdError {
 
 /// `/home/x/Downloads/a.pdf` → `~/Downloads/a.pdf`.
 pub fn tilde(p: &Path) -> String {
-    tilde_with(p, &std::env::var("HOME").unwrap_or_default())
+    tilde_with(p, &tidyflow_core::home())
 }
 
 fn tilde_with(p: &Path, home: &str) -> String {

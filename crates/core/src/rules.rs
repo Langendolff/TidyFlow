@@ -90,7 +90,7 @@ mod tests {
         let src: String = rules
             .iter()
             .map(|(name, when)| {
-                format!("[[rule]]\nname = \"{name}\"\nwatch = [\"{tmp}\"]\nwhen = {when}\naction = {{ trash = true }}\n\n")
+                format!("[[rule]]\nname = \"{name}\"\nwatch = ['{tmp}']\nwhen = {when}\naction = {{ trash = true }}\n\n")
             })
             .collect();
         config::parse(&src).unwrap()

@@ -81,7 +81,7 @@ impl fmt::Display for ConfigError {
 impl std::error::Error for ConfigError {}
 
 pub fn default_path() -> PathBuf {
-    crate::xdg_dir("XDG_CONFIG_HOME", ".config").join("tidyflow/config.toml")
+    crate::config_dir().join("config.toml")
 }
 
 pub fn load(path: &Path) -> Result<Config, ConfigError> {
@@ -161,9 +161,20 @@ fn line_of(src: &str, offset: usize) -> usize {
     src[..offset.min(src.len())].matches('\n').count() + 1
 }
 
+/// No macOS o FSEvents dá caminhos reais (`/private/var/…` para `/var/…`): a pasta
+/// monitorada precisa estar na mesma forma para casar com o evento.
+fn watch_dir(s: &str) -> PathBuf {
+    let p = PathBuf::from(s);
+    #[cfg(target_os = "macos")]
+    if let Ok(real) = p.canonicalize() {
+        return real;
+    }
+    p
+}
+
 fn expand_tilde(s: &str) -> String {
     match s.strip_prefix('~') {
-        Some(rest) if rest.is_empty() || rest.starts_with('/') => {
+        Some(rest) if rest.is_empty() || rest.starts_with('/') || rest.starts_with('\\') => {
             format!("{}{rest}", crate::home())
         }
         _ => s.to_string(),
@@ -188,7 +199,7 @@ fn compile_rule(r: RawRule) -> Result<Rule, String> {
     let watch = r
         .watch
         .iter()
-        .map(|w| PathBuf::from(expand_tilde(w)))
+        .map(|w| watch_dir(&expand_tilde(w)))
         .collect::<Vec<_>>();
 
     let w = r.when;
@@ -322,7 +333,7 @@ mod tests {
 
     fn rule(when: &str, action: &str) -> String {
         format!(
-            "[[rule]]\nname = \"r\"\nwatch = [\"{}\"]\nwhen = {when}\naction = {action}\n",
+            "[[rule]]\nname = \"r\"\nwatch = ['{}']\nwhen = {when}\naction = {action}\n",
             tmp()
         )
     }
@@ -341,7 +352,7 @@ mod tests {
         assert!(!cfg.notify);
         let r = &cfg.rules[0];
         assert_eq!(r.name, "r");
-        assert_eq!(r.watch, vec![PathBuf::from(tmp())]);
+        assert_eq!(r.watch, vec![watch_dir(&tmp())]);
         assert_eq!(r.when.ext, Some(vec!["pdf".to_string(), "xml".to_string()]));
         assert_eq!(r.when.size_gt, Some(1_000));
         assert_eq!(r.when.older_than, Some(Duration::from_secs(172_800)));
@@ -376,7 +387,7 @@ mod tests {
     #[test]
     fn unknown_key_has_line() {
         let src = format!(
-            "[[rule]]\nname = \"r\"\nwatch = [\"{}\"]\naction = {{ trash = true }}\n\n[rule.when]\nfoo = 1\n",
+            "[[rule]]\nname = \"r\"\nwatch = ['{}']\naction = {{ trash = true }}\n\n[rule.when]\nfoo = 1\n",
             tmp()
         );
         let err = parse(&src).unwrap_err();

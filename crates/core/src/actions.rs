@@ -56,11 +56,10 @@ pub fn destination(a: &Action, f: &Facts) -> Option<PathBuf> {
 pub fn execute(a: &Action, f: &Facts) -> io::Result<Option<Done>> {
     let kind = kind_of(a);
     let Some(target) = destination(a, f) else {
-        trash::delete(&f.path).map_err(|e| io::Error::other(e.to_string()))?;
         return Ok(Some(Done {
             kind,
             src: f.path.clone(),
-            dst: None,
+            dst: to_trash(&f.path)?,
         }));
     };
     if target == f.path {
@@ -81,10 +80,25 @@ pub fn execute(a: &Action, f: &Facts) -> io::Result<Option<Done>> {
     }))
 }
 
-/// Devolve se a marca `KEEP_XATTR` foi gravada no arquivo restaurado.
+/// Devolve se a marca `Tag::Keep` foi gravada no arquivo restaurado.
 pub fn undo(kind: Kind, src: &Path, dst: Option<&Path>) -> io::Result<bool> {
     if kind == Kind::Trash {
-        restore_from_trash(src)?;
+        match dst {
+            // macOS: o caminho na lixeira ficou registrado.
+            Some(trashed) => {
+                if fs::symlink_metadata(src).is_ok() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::AlreadyExists,
+                        format!(
+                            "já existe um arquivo em {}; o original continua na lixeira",
+                            src.display()
+                        ),
+                    ));
+                }
+                fs::rename(trashed, src)?;
+            }
+            None => restore_from_trash(src)?,
+        }
         return Ok(keep(src));
     }
     let dst = dst.ok_or_else(|| io::Error::other("ação sem destino registrado"))?;
@@ -110,14 +124,35 @@ pub fn undo(kind: Kind, src: &Path, dst: Option<&Path>) -> io::Result<bool> {
 /// Marca o arquivo restaurado para o engine não reorganizá-lo.
 /// Remove a marca de desfeito (ausente ou fs sem xattr: nada a fazer).
 pub fn clear_keep(path: &Path) {
-    let _ = xattr::remove(path, crate::facts::KEEP_XATTR);
+    let _ = crate::meta::remove(path, crate::meta::Tag::Keep);
 }
 
 fn keep(path: &Path) -> bool {
     // Falha (fs sem xattr, arquivo somente leitura) não desfaz o undo; o journal cobre.
-    xattr::set(path, crate::facts::KEEP_XATTR, b"1").is_ok()
+    crate::meta::set(path, crate::meta::Tag::Keep, "1").is_ok()
 }
 
+/// Manda para a lixeira. Devolve o caminho dentro dela quando o TidyFlow mesmo moveu
+/// o arquivo (macOS, onde o crate `trash` não sabe restaurar), para o undo achá-lo.
+fn to_trash(path: &Path) -> io::Result<Option<PathBuf>> {
+    #[cfg(target_os = "macos")]
+    {
+        let bin = PathBuf::from(crate::home()).join(".Trash");
+        if let Some(name) = path.file_name()
+            && bin.is_dir()
+        {
+            let target = free_path(&bin.join(name));
+            // Outro volume: rename falha e o Finder cuida (sem desfazer).
+            if fs::rename(path, &target).is_ok() {
+                return Ok(Some(target));
+            }
+        }
+    }
+    trash::delete(path).map_err(|e| io::Error::other(e.to_string()))?;
+    Ok(None)
+}
+
+#[cfg(not(target_os = "macos"))]
 fn restore_from_trash(src: &Path) -> io::Result<()> {
     let item = trash::os_limited::list()
         .map_err(|e| io::Error::other(e.to_string()))?
@@ -140,6 +175,14 @@ fn restore_from_trash(src: &Path) -> io::Result<()> {
         ),
         e => io::Error::other(e.to_string()),
     })
+}
+
+#[cfg(target_os = "macos")]
+fn restore_from_trash(src: &Path) -> io::Result<()> {
+    Err(io::Error::other(format!(
+        "{} foi para a lixeira de outro volume; restaure pelo Finder",
+        src.display()
+    )))
 }
 
 // ponytail: verificar e depois usar (TOCTOU). Duas instâncias escrevendo no mesmo
@@ -202,7 +245,7 @@ fn copy_verified(src: &Path, dst: &Path) -> io::Result<()> {
         let meta = fs::metadata(src)?;
         let mut input = fs::File::open(src)?;
         io::copy(&mut input, &mut out)?;
-        copy_xattrs(src, dst); // antes das permissões: dst somente leitura recusaria o xattr
+        crate::meta::copy_all(src, dst); // antes das permissões: dst somente leitura recusaria
         out.set_permissions(meta.permissions())?;
         out.set_modified(meta.modified()?)?;
         out.sync_all()?;
@@ -215,17 +258,6 @@ fn copy_verified(src: &Path, dst: &Path) -> io::Result<()> {
         let _ = fs::remove_file(dst); // só a nossa cópia parcial
     }
     result
-}
-
-// Atributos estendidos (ex.: user.xdg.origin.url); falhas por atributo são ignoradas
-// porque nem todo sistema de arquivos suporta xattr.
-fn copy_xattrs(src: &Path, dst: &Path) {
-    let Ok(names) = xattr::list(src) else { return };
-    for n in names {
-        if let Ok(Some(v)) = xattr::get(src, &n) {
-            let _ = xattr::set(dst, &n, &v);
-        }
-    }
 }
 
 #[cfg(test)]
@@ -325,13 +357,13 @@ mod tests {
             .unwrap()
             .set_modified(old)
             .unwrap();
-        xattr::set(&src, "user.xdg.origin.url", b"http://x").unwrap();
+        crate::meta::set(&src, crate::meta::Tag::Origin, "http://x").unwrap();
         move_via_copy(&src, &dst).unwrap();
         assert!(!src.exists());
         assert_eq!(fs::metadata(&dst).unwrap().modified().unwrap(), old);
         assert_eq!(
-            xattr::get(&dst, "user.xdg.origin.url").unwrap().unwrap(),
-            b"http://x"
+            crate::meta::get(&dst, crate::meta::Tag::Origin).unwrap(),
+            "http://x"
         );
         assert_eq!(fs::read(&dst).unwrap(), vec![7u8; 10_000]);
     }
@@ -355,6 +387,7 @@ mod tests {
         assert!(!unchanged(&src, snap).unwrap());
     }
 
+    #[cfg(unix)]
     #[test]
     fn failed_source_removal_removes_our_copy() {
         use std::os::unix::fs::PermissionsExt;
@@ -371,6 +404,7 @@ mod tests {
         assert!(src.exists() && !dst.exists());
     }
 
+    #[cfg(unix)]
     #[test]
     fn readonly_source_keeps_xattrs() {
         use std::os::unix::fs::PermissionsExt;
@@ -378,12 +412,12 @@ mod tests {
         let src = d.path().join("a.bin");
         let dst = d.path().join("b.bin");
         fs::write(&src, "x").unwrap();
-        xattr::set(&src, "user.xdg.origin.url", b"http://x").unwrap();
+        crate::meta::set(&src, crate::meta::Tag::Origin, "http://x").unwrap();
         fs::set_permissions(&src, fs::Permissions::from_mode(0o444)).unwrap();
         move_via_copy(&src, &dst).unwrap();
         assert_eq!(
-            xattr::get(&dst, "user.xdg.origin.url").unwrap().unwrap(),
-            b"http://x"
+            crate::meta::get(&dst, crate::meta::Tag::Origin).unwrap(),
+            "http://x"
         );
     }
 
@@ -457,6 +491,7 @@ mod tests {
         assert_eq!(fs::read_to_string(&dst).unwrap(), "velho");
     }
 
+    #[cfg(unix)]
     #[test]
     fn dangling_symlink_counts_as_occupied() {
         let d = tempfile::tempdir().unwrap();

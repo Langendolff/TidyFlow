@@ -25,6 +25,9 @@ const LOOP_GUARD_SECS: u64 = 5;
 const FINISHED_WINDOW_SECS: u64 = 60;
 
 struct Daemon {
+    /// Quando cada caminho foi tratado: macOS e Windows mandam vários eventos por arquivo.
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
+    recent: std::collections::HashMap<PathBuf, Instant>,
     config_path: PathBuf,
     journal_path: PathBuf,
     cfg: Config,
@@ -36,6 +39,8 @@ struct Daemon {
 }
 
 pub fn run(config_path: &Path, journal_path: &Path) -> tidyflow_core::Result<()> {
+    // Segurada até o processo sair.
+    let _lock = tidyflow_core::service::hold_lock()?;
     let config_path = config_path.canonicalize()?;
     let cfg = config::load(&config_path)?;
     let journal = Journal::open(journal_path)?;
@@ -49,6 +54,7 @@ pub fn run(config_path: &Path, journal_path: &Path) -> tidyflow_core::Result<()>
     watcher.watch(config_dir, RecursiveMode::NonRecursive)?;
 
     let mut d = Daemon {
+        recent: Default::default(),
         config_path,
         journal_path: journal_path.to_path_buf(),
         cfg,
@@ -132,6 +138,8 @@ impl Daemon {
             return;
         }
         let path = match event.kind {
+            #[cfg(not(target_os = "linux"))]
+            _ if self.triggers(&event) => event.paths.first(),
             EventKind::Access(AccessKind::Close(AccessMode::Write))
             | EventKind::Modify(ModifyKind::Name(RenameMode::To)) => event.paths.first(),
             // O host da extensão grava um xattr quando o download termina; só esse
@@ -152,6 +160,33 @@ impl Daemon {
         } else {
             self.handle(path, received);
         }
+    }
+
+    /// Fora do Linux não há "fechou após escrever": criar, escrever e renomear para
+    /// dentro da pasta disparam, uma vez por arquivo a cada `QUIET`. A espera por
+    /// estabilidade cuida do arquivo ainda sendo escrito.
+    #[cfg(not(target_os = "linux"))]
+    fn triggers(&mut self, event: &Event) -> bool {
+        use notify::event::CreateKind;
+        let interesting = matches!(
+            event.kind,
+            EventKind::Create(CreateKind::File | CreateKind::Any)
+                | EventKind::Modify(
+                    ModifyKind::Data(_)
+                        | ModifyKind::Any
+                        | ModifyKind::Name(RenameMode::To | RenameMode::Any)
+                )
+        );
+        let Some(p) = event.paths.first().filter(|p| interesting && p.is_file()) else {
+            return false;
+        };
+        let now = Instant::now();
+        self.recent.retain(|_, t| now.duration_since(*t) < QUIET);
+        if self.recent.contains_key(p) {
+            return false;
+        }
+        self.recent.insert(p.clone(), now);
+        true
     }
 
     fn handle(&self, path: &Path, received: SystemTime) {

@@ -209,7 +209,7 @@ mod tests {
         let out = d.path().join("out");
         fs::create_dir(&watch).unwrap();
         let cfg = config::parse(&format!(
-            "[[rule]]\nname = \"pdfs\"\nwatch = [\"{}\"]\nwhen = {{ ext = [\"pdf\"] }}\naction = {{ move = \"{}\" }}\n",
+            "[[rule]]\nname = \"pdfs\"\nwatch = ['{}']\nwhen = {{ ext = [\"pdf\"] }}\naction = {{ move = '{}' }}\n",
             watch.display(),
             out.display()
         ))
@@ -289,7 +289,7 @@ mod tests {
     fn copy_rule_copies_once_until_source_changes() {
         let e = env();
         let cfg = config::parse(&format!(
-            "[[rule]]\nname = \"bak\"\nwatch = [\"{}\"]\nwhen = {{ ext = [\"pdf\"] }}\naction = {{ copy = \"{}\" }}\n",
+            "[[rule]]\nname = \"bak\"\nwatch = ['{}']\nwhen = {{ ext = [\"pdf\"] }}\naction = {{ copy = '{}' }}\n",
             e.watch.display(),
             e.out.display()
         ))
@@ -508,7 +508,7 @@ mod tests {
 
     fn with_action(e: &Env, action: &str) -> Config {
         config::parse(&format!(
-            "[[rule]]\nname = \"r\"\nwatch = [\"{}\"]\nwhen = {{ ext = [\"pdf\"] }}\naction = {action}\n",
+            "[[rule]]\nname = \"r\"\nwatch = ['{}']\nwhen = {{ ext = [\"pdf\"] }}\naction = {action}\n",
             e.watch.display()
         ))
         .unwrap()
@@ -520,7 +520,7 @@ mod tests {
         let p = e.watch.join("a.pdf");
         fs::write(&p, "x").unwrap();
 
-        let copy = with_action(&e, &format!("{{ copy = \"{}\" }}", e.out.display()));
+        let copy = with_action(&e, &format!("{{ copy = '{}' }}", e.out.display()));
         process(&copy, &e.journal, &p, false, SystemTime::now()).unwrap();
         assert_eq!(
             row(&e, &p).unwrap().state,
@@ -603,13 +603,13 @@ mod tests {
     }
 
     fn has_keep(p: &Path) -> bool {
-        xattr::get(p, crate::facts::KEEP_XATTR).is_ok_and(|v| v.is_some())
+        crate::meta::has(p, crate::meta::Tag::Keep)
     }
 
     fn xattr_supported(dir: &Path) -> bool {
         let p = dir.join(".probe");
         fs::write(&p, "").unwrap();
-        let ok = xattr::set(&p, "user.tidyflow.probe", b"1").is_ok();
+        let ok = crate::meta::set(&p, crate::meta::Tag::Keep, "1").is_ok();
         fs::remove_file(&p).unwrap();
         ok
     }
@@ -654,14 +654,14 @@ mod tests {
         }
         let out = d.path().join("out");
         let cfg = config::parse(&format!(
-            "[[rule]]\nname = \"c\"\nwatch = [\"/nenhuma\"]\nwhen = {{ ext = [\"pdf\"] }}\naction = {{ copy = \"{}\" }}\n",
+            "[[rule]]\nname = \"c\"\nwatch = [\"/nenhuma\"]\nwhen = {{ ext = [\"pdf\"] }}\naction = {{ copy = '{}' }}\n",
             out.display()
         ))
         .unwrap();
         let journal = Journal::open(&d.path().join("j.db")).unwrap();
         let p = d.path().join("a.pdf");
         fs::write(&p, "x").unwrap();
-        xattr::set(&p, crate::facts::KEEP_XATTR, b"1").unwrap();
+        crate::meta::set(&p, crate::meta::Tag::Keep, "1").unwrap();
         organize(&cfg, &journal, &p, SystemTime::now()).unwrap();
         assert!(!has_keep(&p) && !has_keep(&out.join("a.pdf")));
     }
