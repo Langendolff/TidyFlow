@@ -1,5 +1,7 @@
+mod browser;
 mod daemon;
 mod desktop;
+mod native_host;
 use clap::{Parser, Subcommand};
 use std::{
     path::{Path, PathBuf},
@@ -53,6 +55,26 @@ enum Cmd {
     },
     /// Valida o config; com <ARQUIVO>, mostra qual regra casaria
     Check { file: Option<PathBuf> },
+    /// Host de native messaging (aberto pelo navegador, não pelo usuário)
+    #[command(hide = true)]
+    NativeHost {
+        /// O Firefox passa o manifest e o ID da extensão; o Chromium, a origem.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        _args: Vec<String>,
+    },
+    /// Integração com a extensão de navegador
+    Browser {
+        #[command(subcommand)]
+        cmd: BrowserCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum BrowserCmd {
+    /// Instala o host de native messaging para os navegadores encontrados
+    Install,
+    /// Remove o host de native messaging
+    Uninstall,
 }
 
 fn main() -> ExitCode {
@@ -76,6 +98,24 @@ fn main() -> ExitCode {
 fn run(cmd: Cmd, config_path: &Path) -> tidyflow_core::Result<()> {
     match cmd {
         Cmd::Daemon => daemon::run(config_path, &journal::default_path())?,
+        Cmd::NativeHost { .. } => native_host::run(&journal::default_path())?,
+        Cmd::Browser { cmd } => {
+            let home = PathBuf::from(std::env::var_os("HOME").ok_or("HOME não definido")?);
+            match cmd {
+                BrowserCmd::Install => {
+                    let exe = std::env::current_exe()?;
+                    for f in browser::install(&home, &exe)? {
+                        println!("gravado: {}", f.display());
+                    }
+                    println!("Agora instale a extensão do TidyFlow no navegador (veja o README).");
+                }
+                BrowserCmd::Uninstall => {
+                    for f in browser::uninstall(&home)? {
+                        println!("removido: {}", f.display());
+                    }
+                }
+            }
+        }
         Cmd::Run { dry_run } => {
             let cfg = config::load(config_path)?;
             let journal = Journal::open(&journal::default_path())?;

@@ -194,3 +194,76 @@ fn organize_outside_watch() {
     );
     assert!(!o.status.success());
 }
+
+fn frame(v: &serde_json::Value) -> Vec<u8> {
+    let body = serde_json::to_vec(v).unwrap();
+    let mut out = (body.len() as u32).to_le_bytes().to_vec();
+    out.extend(body);
+    out
+}
+
+/// Envia mensagens ao `native-host` como o navegador faz e devolve as respostas.
+fn native_host(e: &Env, input: &[u8], args: &[&str]) -> (Output, Vec<serde_json::Value>) {
+    use std::io::Write;
+    let mut child = cmd(e)
+        .arg("native-host")
+        .args(args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(input).unwrap();
+    let o = child.wait_with_output().unwrap();
+    let mut replies = Vec::new();
+    let mut rest = o.stdout.as_slice();
+    while rest.len() >= 4 {
+        let n = u32::from_le_bytes(rest[..4].try_into().unwrap()) as usize;
+        replies.push(serde_json::from_slice(&rest[4..4 + n]).unwrap());
+        rest = &rest[4 + n..];
+    }
+    assert!(rest.is_empty(), "stdout com lixo fora do protocolo");
+    (o, replies)
+}
+
+fn download_msg(kind: &str, path: &std::path::Path) -> serde_json::Value {
+    serde_json::json!({
+        "type": kind, "id": 1, "browser": "firefox", "path": path,
+        "url": "https://cdn.example.com/a.pdf", "referrer": "https://example.com/p",
+        "size": 1, "started_at": 1_800_000_000
+    })
+}
+
+#[test]
+fn native_host_speaks_the_protocol() {
+    let e = env();
+    let p = e.watch.join("a.pdf");
+    fs::write(&p, "x").unwrap();
+    let mut input = frame(&download_msg("started", &p));
+    input.extend(4u32.to_le_bytes());
+    input.extend(b"nope");
+    input.extend(frame(&download_msg("finished", &p)));
+    // Argumentos que o Firefox passa ao host.
+    let (o, replies) = native_host(
+        &e,
+        &input,
+        &[
+            "/x/io.github.langendolff.tidyflow.json",
+            "tidyflow@langendolff.github.io",
+        ],
+    );
+    assert!(o.status.success(), "{o:?}");
+    assert_eq!(replies.len(), 3);
+    assert_eq!(replies[0], serde_json::json!({ "ok": true }));
+    assert_eq!(replies[1]["ok"], false);
+    assert_eq!(replies[2], serde_json::json!({ "ok": true }));
+
+    let j = tidyflow_core::journal::Journal::open(&e.d.path().join("tidyflow/journal.db")).unwrap();
+    let d = j.download_at(&p).unwrap().unwrap();
+    assert_eq!(d.state, tidyflow_core::downloads::DownloadState::Complete);
+
+    // Origem do Chromium também é aceita como argumento.
+    let (o, replies) = native_host(&e, &[], &["chrome-extension://abc/"]);
+    assert!(o.status.success(), "{o:?}");
+    assert!(replies.is_empty());
+}

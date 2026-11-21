@@ -4266,10 +4266,13 @@ dependencies = [
  "clap",
  "notify",
  "notify-rust",
+ "serde",
+ "serde_json",
  "tempfile",
  "tidyflow-core",
  "tracing",
  "tracing-subscriber",
+ "xattr",
 ]
 
 [[package]]
