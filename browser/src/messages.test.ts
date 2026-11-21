@@ -123,7 +123,13 @@ describe('AMO', () => {
   })
 
   it('tells the reviewer about the native host and the source build', () => {
-    expect(metadata().version.approval_notes).toBe(APPROVAL_NOTES)
+    const m = metadata('texto da licença')
+    expect(m.version.approval_notes).toBe(APPROVAL_NOTES)
+    expect(m.version.custom_license.name['en-US']).toBe('PolyForm Noncommercial 1.0.0')
+    expect(m.version.custom_license.text['en-US']).toBe('texto da licença')
+    // Resumo do AMO: até 250 caracteres.
+    for (const s of Object.values(m.summary)) expect(s.length).toBeLessThanOrEqual(250)
+    expect(metadata().version.custom_license.text['en-US']).toContain('PolyForm Noncommercial')
     expect(APPROVAL_NOTES).toContain('io.github.langendolff.tidyflow')
     expect(APPROVAL_NOTES).toContain('npm ci && npm run build')
   })
