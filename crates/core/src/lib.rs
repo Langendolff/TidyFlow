@@ -1,5 +1,6 @@
 pub mod actions;
 pub mod config;
+pub mod downloads;
 pub mod engine;
 pub mod facts;
 pub mod journal;

@@ -31,11 +31,13 @@ const COLS: &str = "id, ts, rule, kind, src, dst, undone, error, size";
 
 /// v1: coluna `size` (bytes do arquivo no momento da ação).
 /// v2: coluna `gone` (o arquivo sumiu de onde a ação o deixou; some do histórico).
+/// v3: tabela `downloads` (registro da extensão de navegador e da biblioteca).
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let v: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
     let steps = [
         "ALTER TABLE actions ADD COLUMN size INTEGER;",
         "ALTER TABLE actions ADD COLUMN gone INTEGER NOT NULL DEFAULT 0;",
+        crate::downloads::SCHEMA_V3,
     ];
     for (i, step) in steps.iter().enumerate().skip(v.max(0) as usize) {
         let tx = conn.unchecked_transaction()?;
@@ -134,7 +136,7 @@ pub struct Entry {
 }
 
 pub struct Journal {
-    conn: Connection,
+    pub(crate) conn: Connection,
 }
 
 pub fn default_path() -> PathBuf {
@@ -391,18 +393,18 @@ fn like(search: &str) -> String {
     s
 }
 
-fn now() -> i64 {
+pub(crate) fn now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64
 }
 
-fn bytes(p: &Path) -> &[u8] {
+pub(crate) fn bytes(p: &Path) -> &[u8] {
     p.as_os_str().as_bytes()
 }
 
-fn path(b: Vec<u8>) -> PathBuf {
+pub(crate) fn path(b: Vec<u8>) -> PathBuf {
     PathBuf::from(OsString::from_vec(b))
 }
 
@@ -642,7 +644,7 @@ mod tests {
             .conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 2);
+        assert_eq!(v, 3);
         drop(j);
         Journal::open(&p).unwrap(); // idempotente
     }
