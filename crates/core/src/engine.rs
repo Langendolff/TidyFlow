@@ -205,8 +205,9 @@ mod tests {
 
     fn env() -> Env {
         let d = tempfile::tempdir().unwrap();
-        let watch = d.path().join("in");
-        let out = d.path().join("out");
+        // Caminho real: no macOS a regra guarda /private/var, não o link /var.
+        let watch = crate::real_path(&d.path().join("in"));
+        let out = watch.with_file_name("out");
         fs::create_dir(&watch).unwrap();
         let cfg = config::parse(&format!(
             "[[rule]]\nname = \"pdfs\"\nwatch = ['{}']\nwhen = {{ ext = [\"pdf\"] }}\naction = {{ move = '{}' }}\n",

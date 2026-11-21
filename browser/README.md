@@ -21,9 +21,8 @@ privadas nunca são informados. A comunicação é por native messaging com o bi
    ```
 
 2. Instale a extensão:
-   - **Firefox:** o `.xpi` do [release](https://github.com/Langendolff/TidyFlow/releases/latest),
-     assinado pela Mozilla. Ele se atualiza sozinho pelo `updates.json` do último
-     release. Para testar sem ele: `about:debugging` → Este Firefox → Carregar
+   - **Firefox:** pela loja, em <https://addons.mozilla.org/firefox/addon/tidyflow/>
+     (se atualiza por lá). Para testar sem a loja: `about:debugging` → Este Firefox → Carregar
      extensão temporária → `dist/firefox/manifest.json` (some ao fechar o navegador).
    - **Chromium, Chrome, Brave:** `chrome://extensions` → Modo do desenvolvedor →
      Carregar sem compactação → `dist/chromium/` (ou o zip do release, descompactado).
@@ -43,9 +42,10 @@ npm test -- --run
 npm run package   # zips do release em dist/
 ```
 
-O `.xpi` é assinado no release pelo canal *unlisted* do AMO, com os segredos
-`AMO_JWT_ISSUER` e `AMO_JWT_SECRET`. O AMO assina cada versão uma vez só: não assine
-localmente uma versão que ainda vai sair em release.
+Cada release envia a versão ao AMO pelo canal *listed*, com os segredos
+`AMO_JWT_ISSUER` e `AMO_JWT_SECRET`; a Mozilla revisa e publica na loja. O AMO aceita cada
+versão uma vez só: não assine localmente uma versão que ainda vai sair em release.
+Página da loja e passo a passo: [`AMO.md`](AMO.md).
 
 A conversão de eventos em mensagens fica em `src/messages.ts`, sem API do navegador,
 e é o que os testes cobrem. O ID fixo da extensão no Chromium vem da `key` em

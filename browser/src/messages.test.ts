@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { GECKO_ID, UPDATE_URL, updatesJson } from '../updates.mjs'
+import { APPROVAL_NOTES, GECKO_ID, metadata } from '../amo.mjs'
 import { onChanged, onCreated, titleFor, type DownloadLike } from './messages'
 
 const item = (over: Partial<DownloadLike> = {}): DownloadLike => ({
@@ -116,25 +116,20 @@ describe('Chromium extension ID', () => {
   })
 })
 
-describe('Firefox updates', () => {
-  it('points the release at the signed .xpi', () => {
-    expect(updatesJson('0.2.0', 'v0.2.0')).toEqual({
-      addons: {
-        'tidyflow@langendolff.github.io': {
-          updates: [
-            {
-              version: '0.2.0',
-              update_link: 'https://github.com/Langendolff/TidyFlow/releases/download/v0.2.0/tidyflow-firefox-0.2.0.xpi',
-            },
-          ],
-        },
-      },
-    })
-  })
-
-  it('the Firefox manifest uses the same ID and update URL', () => {
+describe('AMO', () => {
+  it('uses the same Firefox ID as the host', () => {
     const rust = readFileSync(new URL('../../crates/cli/src/browser.rs', import.meta.url), 'utf8')
     expect(rust).toContain(`pub const FIREFOX_ID: &str = "${GECKO_ID}";`)
-    expect(UPDATE_URL).toBe('https://github.com/Langendolff/TidyFlow/releases/latest/download/updates.json')
+  })
+
+  it('tells the reviewer about the native host and the source build', () => {
+    expect(metadata().version.approval_notes).toBe(APPROVAL_NOTES)
+    expect(APPROVAL_NOTES).toContain('io.github.langendolff.tidyflow')
+    expect(APPROVAL_NOTES).toContain('npm ci && npm run build')
+  })
+
+  it('listed builds have no self-hosted update URL', () => {
+    const build = readFileSync(new URL('../build.mjs', import.meta.url), 'utf8')
+    expect(build).not.toContain('update_url')
   })
 })

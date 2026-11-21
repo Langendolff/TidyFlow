@@ -275,7 +275,7 @@ when it can touch the file instead of guessing from `.part` files.
 tidyflow browser install   # install.sh already does this
 ```
 
-Then install the extension: on Firefox, the `.xpi` from the release; on Chromium, Chrome or
+Then install the extension: on Firefox, from [addons.mozilla.org](https://addons.mozilla.org/firefox/addon/tidyflow/); on Chromium, Chrome or
 Brave, unzip the release zip and load it in `chrome://extensions` (developer mode → load
 unpacked). Details in [`browser/README.md`](browser/README.md).
 

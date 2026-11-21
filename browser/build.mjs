@@ -4,7 +4,7 @@
 import { build } from 'esbuild'
 import { execFileSync } from 'node:child_process'
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { GECKO_ID, UPDATE_URL } from './updates.mjs'
+import { GECKO_ID } from './amo.mjs'
 
 const version = readFileSync('../crates/cli/Cargo.toml', 'utf8').match(/^version = "([^"]+)"/m)[1]
 const base = JSON.parse(readFileSync('manifest.base.json', 'utf8'))
@@ -17,8 +17,6 @@ const targets = {
       gecko: {
         id: GECKO_ID,
         strict_min_version: '142.0',
-        // Distribuição fora da loja: o Firefox procura versões novas aqui.
-        update_url: UPDATE_URL,
         // Os dados só vão para o app local, pelo native messaging.
         data_collection_permissions: { required: ['none'] },
       },

@@ -471,8 +471,15 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let f = file(d.path(), "lixo.txt", "x");
         let done = execute(&Action::Trash, &f).unwrap().unwrap();
-        assert!(!f.path.exists() && done.dst.is_none());
-        undo(done.kind, &done.src, None).unwrap();
+        assert!(!f.path.exists());
+        if cfg!(target_os = "macos") {
+            if done.dst.is_none() {
+                return; // sem ~/.Trash no mesmo volume (CI): o Finder restaura
+            }
+        } else {
+            assert!(done.dst.is_none());
+        }
+        undo(done.kind, &done.src, done.dst.as_deref()).unwrap();
         assert!(f.path.exists());
     }
 
@@ -481,8 +488,11 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let f = file(d.path(), "ocupado.txt", "x");
         let done = execute(&Action::Trash, &f).unwrap().unwrap();
+        if cfg!(target_os = "macos") && done.dst.is_none() {
+            return; // sem ~/.Trash no mesmo volume (CI)
+        }
         fs::write(&f.path, "outro").unwrap();
-        let err = undo(done.kind, &done.src, None).unwrap_err();
+        let err = undo(done.kind, &done.src, done.dst.as_deref()).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
         assert!(
             err.to_string().contains("o original continua na lixeira"),

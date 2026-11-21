@@ -280,7 +280,7 @@ vez de adivinhar pelos arquivos `.part`.
 tidyflow browser install   # o install.sh já faz isso
 ```
 
-Depois, instale a extensão: no Firefox, o `.xpi` do release; no Chromium, Chrome ou
+Depois, instale a extensão: no Firefox, pelo [addons.mozilla.org](https://addons.mozilla.org/firefox/addon/tidyflow/); no Chromium, Chrome ou
 Brave, o zip do release descompactado em `chrome://extensions` (modo do
 desenvolvedor → carregar sem compactação). Detalhes em [`browser/README.md`](browser/README.md).
 
