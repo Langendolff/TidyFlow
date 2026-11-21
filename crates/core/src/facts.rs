@@ -95,7 +95,8 @@ impl Facts {
 
     #[cfg(test)]
     pub(crate) fn sample(name: &str) -> Facts {
-        let path = std::env::temp_dir().join(name);
+        // Caminho real: no macOS a regra guarda /private/var, não o link /var.
+        let path = crate::real_path(&std::env::temp_dir().join(name));
         let ext = path
             .extension()
             .map(|e| e.to_string_lossy().to_lowercase())
