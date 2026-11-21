@@ -62,11 +62,19 @@ jobs:
           git archive --format=zip -o "$RUNNER_TEMP/source.zip" HEAD browser crates/cli/Cargo.toml
           cd browser
           node amo.mjs > "$RUNNER_TEMP/amo-metadata.json"
-          npx web-ext sign --channel=listed -s dist/firefox \
+          # Versão já enviada à mão pelo Developer Hub: aviso, não falha.
+          set -o pipefail
+          if ! npx web-ext sign --channel=listed -s dist/firefox \
             --amo-metadata="$RUNNER_TEMP/amo-metadata.json" \
             --upload-source-code="$RUNNER_TEMP/source.zip" \
             --approval-timeout=0 \
-            --api-key="$AMO_JWT_ISSUER" --api-secret="$AMO_JWT_SECRET"
+            --api-key="$AMO_JWT_ISSUER" --api-secret="$AMO_JWT_SECRET" 2>&1 | tee "$RUNNER_TEMP/amo.log"; then
+            if grep -q "already exists" "$RUNNER_TEMP/amo.log"; then
+              echo "::warning::esta versão já está no AMO; nada enviado"
+            else
+              exit 1
+            fi
+          fi
       # Exemplo para macOS/Windows: lá as pastas pessoais têm nome em inglês.
       - name: Config de exemplo fora do Linux
         run: |

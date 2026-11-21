@@ -76,3 +76,18 @@ Mozilla manda e-mail quando aprova ou pede mudanças.
 
 A versão vem de `crates/cli/Cargo.toml`, e cada número só pode ir ao AMO uma vez. A 0.1.0
 já foi usada.
+
+## Primeira versão listada (0.2.0), à mão
+
+Enquanto o TidyFlow só tem a 0.1.0 *unlisted*, o AMO costuma não deixar editar a página
+do produto: ela é preenchida no assistente da primeira versão listada. Em *TidyFlow →
+Enviar nova versão → Neste site*, envie `tidyflow-firefox-0.2.0.zip`; quando ele pedir o
+código-fonte, `tidyflow-firefox-0.2.0-source.zip`. Para gerar os dois:
+
+```sh
+npm --prefix browser run package
+git archive --format=zip -o tidyflow-firefox-0.2.0-source.zip HEAD browser crates/cli/Cargo.toml
+```
+
+Nas telas seguintes vêm a descrição, a categoria, a licença, a privacidade e as capturas.
+Depois, a tag `v0.2.0` vê que a versão já está no AMO e só deixa um aviso no workflow.
