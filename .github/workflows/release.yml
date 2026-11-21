@@ -72,7 +72,8 @@ jobs:
             if grep -q "already exists" "$RUNNER_TEMP/amo.log"; then
               echo "::warning::esta versão já está no AMO; nada enviado"
             else
-              exit 1
+              # Não segura os pacotes: a extensão pode ser enviada depois, à mão.
+              echo "::error::envio ao AMO falhou (veja o log acima); pacotes seguem sem ele"
             fi
           fi
       # Exemplo para macOS/Windows: lá as pastas pessoais têm nome em inglês.
