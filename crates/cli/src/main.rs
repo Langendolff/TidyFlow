@@ -11,7 +11,6 @@ use std::{
 use tidyflow_core::{
     actions, config,
     engine::{self, Report},
-    facts::Facts,
     journal::{self, Entry, Journal},
     rules,
 };
@@ -211,7 +210,8 @@ fn run(cmd: Cmd, config_path: &Path) -> tidyflow_core::Result<()> {
                 println!("aviso: pasta watch não existe: {}", dir.display());
             }
             if let Some(file) = file {
-                let f = Facts::read(&file)?;
+                let journal = Journal::open(&journal::default_path())?;
+                let f = engine::facts(&journal, &file)?;
                 println!(
                     "mime: {}\nextensão: {}\ntamanho: {} bytes",
                     f.mime, f.ext, f.size
@@ -222,7 +222,6 @@ fn run(cmd: Cmd, config_path: &Path) -> tidyflow_core::Result<()> {
                     f.referrer_url.as_deref().unwrap_or("(nenhuma)")
                 );
                 println!("site: {}", f.site().as_deref().unwrap_or("(desconhecido)"));
-                let journal = Journal::open(&journal::default_path())?;
                 let by_journal = journal.was_undone_src(&file)?;
                 if f.keep || by_journal {
                     println!(

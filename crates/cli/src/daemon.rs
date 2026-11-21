@@ -21,6 +21,8 @@ const RETRY: Duration = Duration::from_secs(60);
 const QUIET: Duration = Duration::from_secs(2);
 const MAX_WAIT: Duration = Duration::from_secs(60);
 const LOOP_GUARD_SECS: u64 = 5;
+/// Evento de xattr até este tempo depois do fim do download reprocessa o arquivo.
+const FINISHED_WINDOW_SECS: u64 = 60;
 
 struct Daemon {
     config_path: PathBuf,
@@ -132,6 +134,16 @@ impl Daemon {
         let path = match event.kind {
             EventKind::Access(AccessKind::Close(AccessMode::Write))
             | EventKind::Modify(ModifyKind::Name(RenameMode::To)) => event.paths.first(),
+            // O host da extensão grava um xattr quando o download termina; só esse
+            // caso interessa (chmod, touch etc. não reprocessam o arquivo).
+            EventKind::Modify(ModifyKind::Metadata(_)) => {
+                let since = received - Duration::from_secs(FINISHED_WINDOW_SECS);
+                event.paths.first().filter(|p| {
+                    self.journal
+                        .download_finished_since(p, since)
+                        .unwrap_or(false)
+                })
+            }
             _ => None,
         };
         let Some(path) = path else { return };
@@ -165,7 +177,7 @@ impl Daemon {
             return debug!("{} sumiu ou não estabilizou", path.display());
         }
         // Checado depois da espera: o .part pode surgir logo após o marcador.
-        if stability::download_in_progress(path) {
+        if engine::busy(&self.journal, path, SystemTime::now()) {
             return debug!("{} ainda está baixando", path.display());
         }
         let result = engine::process(&self.cfg, &self.journal, path, false, SystemTime::now());

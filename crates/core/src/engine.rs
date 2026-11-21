@@ -2,6 +2,7 @@ use crate::{
     Result,
     actions::{self, Kind},
     config::{Config, Rule},
+    downloads,
     facts::Facts,
     journal::{Entry, Journal},
     rules, stability,
@@ -34,6 +35,30 @@ pub enum Report {
     },
 }
 
+/// Download em andamento: pelo registro da extensão (até 24h) ou pela heurística
+/// dos arquivos temporários do navegador.
+pub fn busy(journal: &Journal, path: &Path, now: SystemTime) -> bool {
+    let since = now - Duration::from_secs(downloads::STALE_SECS);
+    stability::download_in_progress(path) || journal.download_active(path, since).unwrap_or(false)
+}
+
+/// `Facts::read` com origem e página de origem do registro quando os xattrs faltam
+/// (sistema de arquivos sem xattr, ou o host não conseguiu gravá-los).
+pub fn facts(journal: &Journal, path: &Path) -> Result<Facts> {
+    let mut f = Facts::read(path)?;
+    if f.origin_url.is_none() || f.referrer_url.is_none() {
+        let row = match f.download_id {
+            Some(id) => journal.download(id)?,
+            None => journal.download_at(path)?,
+        };
+        if let Some(d) = row {
+            f.origin_url = f.origin_url.or(d.url);
+            f.referrer_url = f.referrer_url.or(d.referrer);
+        }
+    }
+    Ok(f)
+}
+
 pub fn process(
     cfg: &Config,
     journal: &Journal,
@@ -41,7 +66,7 @@ pub fn process(
     dry_run: bool,
     now: SystemTime,
 ) -> Result<Report> {
-    let facts = Facts::read(path)?;
+    let facts = facts(journal, path)?;
     if facts.keep || journal.was_undone_src(path)? {
         return Ok(Report::NoMatch); // restaurado por undo
     }
@@ -66,7 +91,7 @@ pub fn process(
 /// vale qualquer regra ativa, qualquer que seja o `watch`, sem idade mínima, e a
 /// marca de desfeito é ignorada e removida (o pedido explícito vence o undo).
 pub fn organize(cfg: &Config, journal: &Journal, path: &Path, now: SystemTime) -> Result<Report> {
-    let facts = Facts::read(path)?;
+    let facts = facts(journal, path)?;
     let Some(rule) = rules::first_match_anywhere(&cfg.rules, &facts, now) else {
         return Ok(Report::NoMatch);
     };
@@ -128,7 +153,7 @@ pub fn scan(
             if !path.is_file() || stability::is_ignored_name(&entry.file_name().to_string_lossy()) {
                 continue;
             }
-            if fresh(&path, now) || stability::download_in_progress(&path) {
+            if fresh(&path, now) || busy(journal, &path, now) {
                 continue;
             }
             let report = process(cfg, journal, &path, dry_run, now);
@@ -372,6 +397,59 @@ mod tests {
             scan(&e.cfg, &e.journal, false, now + SCAN_MIN_AGE * 2).len(),
             1
         );
+    }
+
+    fn started(e: &Env, p: &Path, at: i64) {
+        e.journal
+            .download_started(&downloads::Started {
+                browser: "firefox",
+                browser_id: 1,
+                path: p,
+                url: "https://x.com/a.pdf",
+                referrer: Some("https://site.com/page"),
+                page_title: None,
+                mime: None,
+                started_at: at,
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn scan_skips_registered_in_progress() {
+        let e = env();
+        let p = e.watch.join("a.pdf");
+        fs::write(&p, "1 KB, sem .part ao lado").unwrap();
+        started(&e, &p, crate::journal::now());
+        let later = SystemTime::now() + SCAN_MIN_AGE * 2;
+        assert!(scan(&e.cfg, &e.journal, false, later).is_empty());
+        assert!(p.exists());
+        e.journal.download_finished("firefox", 1, 23).unwrap();
+        assert_eq!(scan(&e.cfg, &e.journal, false, later).len(), 1);
+        assert!(e.out.join("a.pdf").exists());
+    }
+
+    #[test]
+    fn busy_ignores_stale_registry() {
+        let e = env();
+        let p = e.watch.join("a.pdf");
+        fs::write(&p, "x").unwrap();
+        let now = SystemTime::now();
+        started(&e, &p, crate::journal::now() - 25 * 3600);
+        assert!(!busy(&e.journal, &p, now));
+        started(&e, &p, crate::journal::now());
+        assert!(busy(&e.journal, &p, now));
+    }
+
+    #[test]
+    fn facts_fall_back_to_registry() {
+        let e = env();
+        let p = e.watch.join("a.pdf");
+        fs::write(&p, "x").unwrap();
+        assert_eq!(facts(&e.journal, &p).unwrap().site(), None);
+        started(&e, &p, crate::journal::now());
+        let f = facts(&e.journal, &p).unwrap();
+        assert_eq!(f.origin_host().as_deref(), Some("x.com"));
+        assert_eq!(f.site().as_deref(), Some("site.com"));
     }
 
     #[test]

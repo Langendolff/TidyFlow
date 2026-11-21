@@ -378,9 +378,10 @@ pub struct Inspect {
 #[tauri::command(async)]
 pub fn inspect(state: State<AppState>, path: String) -> CmdResult<Inspect> {
     let path = PathBuf::from(path);
-    let facts =
-        Facts::read(&path).map_err(|e| CmdError::other(format!("{}: {e}", tilde(&path))))?;
-    let keep = facts.keep || state.journal()?.was_undone_src(&path)?;
+    let journal = state.journal()?;
+    let facts = engine::facts(&journal, &path)
+        .map_err(|e| CmdError::other(format!("{}: {e}", tilde(&path))))?;
+    let keep = facts.keep || journal.was_undone_src(&path)?;
     let cfg = state.config()?;
     let now = SystemTime::now();
     let mut won = false;

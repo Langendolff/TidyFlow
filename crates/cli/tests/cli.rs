@@ -267,3 +267,32 @@ fn native_host_speaks_the_protocol() {
     assert!(o.status.success(), "{o:?}");
     assert!(replies.is_empty());
 }
+
+#[test]
+fn daemon_waits_for_the_browser_to_finish() {
+    let e = env();
+    let p = e.watch.join("a.pdf");
+    let probe = e.d.path().join("probe");
+    fs::write(&probe, "x").unwrap();
+    if xattr::set(&probe, "user.tidyflow.test", b"1").is_err() {
+        return; // fs sem xattr user.*: o evento de fim não chega
+    }
+    let mut child = cmd(&e).arg("daemon").spawn().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let (o, _) = native_host(&e, &frame(&download_msg("started", &p)), &[]);
+    assert!(o.status.success(), "{o:?}");
+    // Sem .part ao lado: só o registro diz que ainda está baixando.
+    fs::write(&p, "x").unwrap();
+    std::thread::sleep(std::time::Duration::from_secs(4));
+    let still_there = p.exists();
+    let (o, _) = native_host(&e, &frame(&download_msg("finished", &p)), &[]);
+    assert!(o.status.success(), "{o:?}");
+    wait_for(10, || e.out.join("a.pdf").exists());
+    child.kill().unwrap();
+    child.wait().unwrap();
+    assert!(still_there, "daemon moveu um download em andamento");
+    assert!(
+        e.out.join("a.pdf").exists(),
+        "daemon não reagiu ao fim do download"
+    );
+}
