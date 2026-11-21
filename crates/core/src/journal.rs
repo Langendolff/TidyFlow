@@ -27,7 +27,7 @@ CREATE INDEX IF NOT EXISTS actions_src ON actions(src);
 CREATE INDEX IF NOT EXISTS actions_ts ON actions(ts);
 ";
 
-const COLS: &str = "id, ts, rule, kind, src, dst, undone, error, size";
+pub(crate) const COLS: &str = "id, ts, rule, kind, src, dst, undone, error, size";
 
 /// v1: coluna `size` (bytes do arquivo no momento da ação).
 /// v2: coluna `gone` (o arquivo sumiu de onde a ação o deixou; some do histórico).
@@ -395,7 +395,7 @@ impl Journal {
 const SEARCH: &str = "(?1 = '%%' OR rule LIKE ?1 ESCAPE '\\' \
      OR CAST(src AS TEXT) LIKE ?1 ESCAPE '\\' OR CAST(dst AS TEXT) LIKE ?1 ESCAPE '\\')";
 
-fn like(search: &str) -> String {
+pub(crate) fn like(search: &str) -> String {
     let mut s = String::from("%");
     for c in search.trim().chars() {
         if matches!(c, '\\' | '%' | '_') {
@@ -422,7 +422,7 @@ pub(crate) fn path(b: Vec<u8>) -> PathBuf {
     PathBuf::from(OsString::from_vec(b))
 }
 
-fn entry(r: &Row) -> rusqlite::Result<Entry> {
+pub(crate) fn entry(r: &Row) -> rusqlite::Result<Entry> {
     let kind: String = r.get(3)?;
     Ok(Entry {
         id: r.get(0)?,

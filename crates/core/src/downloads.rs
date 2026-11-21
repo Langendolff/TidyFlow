@@ -4,8 +4,8 @@
 use crate::{
     Result,
     actions::Kind,
-    facts::Facts,
-    journal::{Journal, bytes, path},
+    facts::{Category, Facts, category, host_of},
+    journal::{self, Entry, Journal, bytes, path},
 };
 use rusqlite::{Connection, OptionalExtension, Row, params, types::Type};
 use std::{
@@ -124,6 +124,72 @@ pub struct Started<'a> {
 /// Downloads em andamento há mais que isso são tratados como abandonados
 /// (navegador fechado no meio).
 pub const STALE_SECS: u64 = 24 * 3600;
+
+/// Onde o arquivo está, para os filtros da biblioteca.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Place {
+    All,
+    /// ainda numa pasta monitorada
+    InWatch,
+    /// fora das pastas monitoradas
+    Organized,
+    Trashed,
+    /// não está mais onde o TidyFlow o viu
+    Missing,
+    Downloading,
+}
+
+pub struct LibraryQuery<'a> {
+    pub place: Place,
+    pub category: Option<Category>,
+    pub site: Option<&'a str>,
+    /// só os que chegaram a partir deste timestamp unix
+    pub since: Option<i64>,
+    pub search: &'a str,
+    pub before_id: Option<i64>,
+    pub limit: usize,
+    pub watch: &'a [PathBuf],
+}
+
+#[derive(Debug, Clone)]
+pub struct LibraryItem {
+    pub download: Download,
+    pub category: Category,
+    pub site: Option<String>,
+    /// ação mais recente do TidyFlow sobre o arquivo no caminho atual
+    pub last_action: Option<Entry>,
+}
+
+impl Download {
+    /// Mesma regra de `Facts::site`: a página de origem; sem ela, o host do arquivo.
+    pub fn site(&self) -> Option<String> {
+        self.referrer
+            .as_deref()
+            .and_then(host_of)
+            .or_else(|| self.url.as_deref().and_then(host_of))
+    }
+
+    pub fn category(&self) -> Category {
+        let name = self
+            .current_path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        category(self.mime.as_deref().unwrap_or(""), &name)
+    }
+
+    fn in_watch(&self, watch: &[PathBuf]) -> bool {
+        self.current_path
+            .parent()
+            .is_some_and(|p| watch.iter().any(|w| w == p))
+    }
+}
+
+/// Uma linha por caminho (a mais recente) e sem downloads interrompidos: uma
+/// interrupção não deixa arquivo.
+const LIBRARY_ROWS: &str = "state != 'interrupted' \
+     AND id IN (SELECT MAX(id) FROM downloads GROUP BY current_path)";
 
 fn secs(t: SystemTime) -> i64 {
     t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64
@@ -391,6 +457,106 @@ impl Journal {
         Ok(gone.len())
     }
 
+    /// Página da biblioteca, mais novos primeiro. Estado, período e busca são filtrados
+    /// no SQL; pasta, categoria e site em Rust, pedindo blocos até completar `limit`.
+    pub fn library(&self, q: &LibraryQuery) -> Result<Vec<LibraryItem>> {
+        let stale = journal::now() - STALE_SECS as i64;
+        let state = match q.place {
+            Place::All => format!("(state != 'in_progress' OR started_at >= {stale})"),
+            Place::InWatch | Place::Organized => "state = 'complete'".into(),
+            Place::Trashed => "state = 'trashed'".into(),
+            Place::Missing => "state = 'gone'".into(),
+            Place::Downloading => format!("state = 'in_progress' AND started_at >= {stale}"),
+        };
+        let sql = format!(
+            "SELECT {COLS} FROM downloads WHERE {LIBRARY_ROWS} AND {state} AND id < ?1 \
+             AND started_at >= ?2 AND (?3 = '%%' OR CAST(current_path AS TEXT) LIKE ?3 ESCAPE '\\' \
+             OR url LIKE ?3 ESCAPE '\\' OR page_title LIKE ?3 ESCAPE '\\' \
+             OR referrer LIKE ?3 ESCAPE '\\') ORDER BY id DESC LIMIT ?4"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let pattern = journal::like(q.search);
+        let keep = |d: &Download| {
+            (match q.place {
+                Place::InWatch => d.in_watch(q.watch),
+                Place::Organized => !d.in_watch(q.watch),
+                _ => true,
+            }) && q.category.is_none_or(|c| d.category() == c)
+                && q.site.is_none_or(|s| d.site().as_deref() == Some(s))
+        };
+        let mut out = Vec::new();
+        let mut before = q.before_id.unwrap_or(i64::MAX);
+        let block = (q.limit * 4).max(100) as i64;
+        while out.len() < q.limit {
+            let rows: Vec<Download> = stmt
+                .query_map(
+                    params![before, q.since.unwrap_or(i64::MIN), pattern, block],
+                    download,
+                )?
+                .collect::<rusqlite::Result<_>>()?;
+            let Some(last) = rows.last() else { break };
+            before = last.id;
+            let full = rows.len() as i64 == block;
+            for d in rows.into_iter().filter(|d| keep(d)) {
+                if out.len() == q.limit {
+                    break;
+                }
+                out.push(LibraryItem {
+                    category: d.category(),
+                    site: d.site(),
+                    last_action: self.last_action_at(&d.current_path)?,
+                    download: d,
+                });
+            }
+            if !full {
+                break;
+            }
+        }
+        Ok(out)
+    }
+
+    fn last_action_at(&self, p: &Path) -> Result<Option<Entry>> {
+        let sql = format!(
+            "SELECT {} FROM actions WHERE (dst = ?1 OR src = ?1) AND error IS NULL \
+             ORDER BY id DESC LIMIT 1",
+            journal::COLS
+        );
+        Ok(self
+            .conn
+            .query_row(&sql, [bytes(p)], journal::entry)
+            .optional()?)
+    }
+
+    /// Sites com mais arquivos na biblioteca (os chips do filtro).
+    pub fn top_sites(&self, limit: usize) -> Result<Vec<(String, u64)>> {
+        let sql = format!("SELECT {COLS} FROM downloads WHERE {LIBRARY_ROWS}");
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut counts = std::collections::HashMap::<String, u64>::new();
+        for d in stmt.query_map([], download)? {
+            if let Some(site) = d?.site() {
+                *counts.entry(site).or_default() += 1;
+            }
+        }
+        let mut v: Vec<_> = counts.into_iter().collect();
+        v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        v.truncate(limit);
+        Ok(v)
+    }
+
+    /// Muda quando a biblioteca ganha um registro ou um download termina; o app usa
+    /// junto com `max_id` para se atualizar sozinho.
+    pub fn library_token(&self) -> Result<String> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT COALESCE(MAX(id), 0) || ':' || COALESCE(MAX(finished_at), 0) || ':' || \
+             SUM(state = 'gone') FROM downloads",
+                [],
+                |r| r.get::<_, Option<String>>(0),
+            )?
+            .unwrap_or_default())
+    }
+
     /// Registro mais recente do arquivo que está (ou estava) neste caminho.
     pub fn download_at(&self, path: &Path) -> Result<Option<Download>> {
         let sql = format!(
@@ -563,6 +729,192 @@ mod tests {
         j.download_started(&started(p, 2, now)).unwrap();
         j.download_finished("firefox", 2, 1).unwrap();
         assert!(!j.download_active(p, ago(60)).unwrap());
+    }
+
+    /// Insere um registro já terminado em `dir/name`, vindo de `referrer`.
+    fn add(j: &Journal, dir: &Path, name: &str, referrer: &str, mime: &str) -> i64 {
+        let p = dir.join(name);
+        std::fs::write(&p, "x").unwrap();
+        let id = j
+            .download_started(&Started {
+                browser: "firefox",
+                browser_id: j.max_id().unwrap() + crate::journal::now() % 1000 + name.len() as i64,
+                path: &p,
+                url: "https://cdn.net/x",
+                referrer: Some(referrer),
+                page_title: Some("Título da página"),
+                mime: Some(mime),
+                started_at: crate::journal::now(),
+            })
+            .unwrap();
+        j.conn
+            .execute(
+                "UPDATE downloads SET state = 'complete' WHERE id = ?1",
+                [id],
+            )
+            .unwrap();
+        id
+    }
+
+    fn q<'a>(place: Place, watch: &'a [PathBuf]) -> LibraryQuery<'a> {
+        LibraryQuery {
+            place,
+            category: None,
+            site: None,
+            since: None,
+            search: "",
+            before_id: None,
+            limit: 50,
+            watch,
+        }
+    }
+
+    fn ids(items: &[LibraryItem]) -> Vec<i64> {
+        items.iter().map(|i| i.download.id).collect()
+    }
+
+    #[test]
+    fn library_places_categories_sites_and_search() {
+        let (d, j) = open();
+        let watch_dir = d.path().join("Downloads");
+        let docs = d.path().join("Docs");
+        std::fs::create_dir_all(&watch_dir).unwrap();
+        std::fs::create_dir_all(&docs).unwrap();
+        let watch = vec![watch_dir.clone()];
+        let a = add(
+            &j,
+            &watch_dir,
+            "fatura.pdf",
+            "https://nubank.com.br/f",
+            "application/pdf",
+        );
+        let b = add(&j, &docs, "foto.png", "https://github.com/x", "image/png");
+        let c = add(
+            &j,
+            &watch_dir,
+            "app.deb",
+            "https://github.com/y",
+            "application/octet-stream",
+        );
+        j.download_set_state(c, DownloadState::Trashed).unwrap();
+        let running = j
+            .download_started(&started(
+                &watch_dir.join("big.iso"),
+                999,
+                crate::journal::now(),
+            ))
+            .unwrap();
+        let interrupted = j
+            .download_started(&started(
+                &watch_dir.join("x.zip"),
+                998,
+                crate::journal::now(),
+            ))
+            .unwrap();
+        j.download_set_state(interrupted, DownloadState::Interrupted)
+            .unwrap();
+
+        assert_eq!(
+            ids(&j.library(&q(Place::All, &watch)).unwrap()),
+            vec![running, c, b, a]
+        );
+        assert_eq!(
+            ids(&j.library(&q(Place::InWatch, &watch)).unwrap()),
+            vec![a]
+        );
+        assert_eq!(
+            ids(&j.library(&q(Place::Organized, &watch)).unwrap()),
+            vec![b]
+        );
+        assert_eq!(
+            ids(&j.library(&q(Place::Trashed, &watch)).unwrap()),
+            vec![c]
+        );
+        assert_eq!(
+            ids(&j.library(&q(Place::Downloading, &watch)).unwrap()),
+            vec![running]
+        );
+
+        let mut by = q(Place::All, &watch);
+        by.category = Some(Category::Installer);
+        assert_eq!(ids(&j.library(&by).unwrap()), vec![running, c]); // .iso também é instalador
+        let mut by = q(Place::All, &watch);
+        by.site = Some("github.com");
+        assert_eq!(ids(&j.library(&by).unwrap()), vec![c, b]);
+        for (search, want) in [
+            ("fatura", vec![a]),
+            ("cdn.net", vec![c, b, a]),
+            ("título", vec![c, b, a]),
+            ("example.com/page", vec![running]),
+            ("%", vec![]),
+        ] {
+            let mut by = q(Place::All, &watch);
+            by.search = search;
+            assert_eq!(ids(&j.library(&by).unwrap()), want, "{search}");
+        }
+
+        let items = j.library(&q(Place::All, &watch)).unwrap();
+        let png = items.iter().find(|i| i.download.id == b).unwrap();
+        assert_eq!(png.category, Category::Image);
+        assert_eq!(png.site.as_deref(), Some("github.com"));
+
+        assert_eq!(
+            j.top_sites(5).unwrap(),
+            vec![
+                ("github.com".to_string(), 2),
+                ("example.com".into(), 1),
+                ("nubank.com.br".into(), 1)
+            ]
+        );
+    }
+
+    #[test]
+    fn library_paginates_and_dedupes_paths() {
+        let (d, j) = open();
+        let dir = d.path().to_path_buf();
+        let watch = vec![dir.clone()];
+        let ids_in: Vec<i64> = (0..5)
+            .map(|i| {
+                add(
+                    &j,
+                    &dir,
+                    &format!("f{i}.txt"),
+                    "https://s.com/",
+                    "text/plain",
+                )
+            })
+            .collect();
+        let mut page = q(Place::All, &watch);
+        page.limit = 2;
+        assert_eq!(ids(&j.library(&page).unwrap()), vec![ids_in[4], ids_in[3]]);
+        page.before_id = Some(ids_in[3]);
+        assert_eq!(ids(&j.library(&page).unwrap()), vec![ids_in[2], ids_in[1]]);
+
+        // dois registros para o mesmo caminho: só o mais novo aparece
+        let again = add(&j, &dir, "f0.txt", "https://s.com/", "text/plain");
+        let all = ids(&j.library(&q(Place::All, &watch)).unwrap());
+        assert!(all.contains(&again) && !all.contains(&ids_in[0]));
+    }
+
+    #[test]
+    fn last_action_and_token() {
+        let (d, j) = open();
+        let token0 = j.library_token().unwrap();
+        let id = add(&j, d.path(), "a.pdf", "https://s.com/", "application/pdf");
+        assert_ne!(j.library_token().unwrap(), token0);
+        let src = d.path().join("a.pdf");
+        let dst = d.path().join("out.pdf");
+        std::fs::rename(&src, &dst).unwrap();
+        let done = crate::actions::Done {
+            kind: Kind::Move,
+            src: src.clone(),
+            dst: Some(dst.clone()),
+        };
+        let action = j.record("Docs", &done, 1).unwrap();
+        let items = j.library(&q(Place::All, &[])).unwrap();
+        assert_eq!(items[0].download.id, id);
+        assert_eq!(items[0].download.current_path, dst);
+        assert_eq!(items[0].last_action.as_ref().unwrap().id, action);
     }
 
     #[test]

@@ -4,7 +4,8 @@
 
 use crate::{
     dto::{
-        CmdError, CmdResult, EntryDto, FactsDto, FolderDto, Outcome, RuleCheck, mtime_token, tilde,
+        CmdError, CmdResult, EntryDto, FactsDto, FolderDto, LibraryItemDto, Outcome, RuleCheck,
+        mtime_token, tilde,
     },
     system::{self, DaemonStatus},
 };
@@ -21,8 +22,9 @@ use tidyflow_core::{
         self, Config,
         edit::{EditError, Editor, RuleDraft},
     },
+    downloads::{LibraryQuery, Place},
     engine::{self, Report},
-    facts::Facts,
+    facts::{Category, Facts},
     journal::{Counts, Filter, Journal, Periods, Stats},
     rules,
 };
@@ -444,6 +446,97 @@ pub fn initial_test_file(state: State<AppState>) -> Option<String> {
     state.initial_test_file.clone()
 }
 
+// ---------- Biblioteca ----------
+
+#[derive(Serialize)]
+pub struct LibraryPage {
+    items: Vec<LibraryItemDto>,
+    has_more: bool,
+}
+
+#[tauri::command(async)]
+#[allow(clippy::too_many_arguments)]
+pub fn library(
+    state: State<AppState>,
+    place: Place,
+    category: Option<Category>,
+    site: Option<String>,
+    since: Option<i64>,
+    search: String,
+    before_id: Option<i64>,
+) -> CmdResult<LibraryPage> {
+    let journal = state.journal()?;
+    journal.sweep_gone()?;
+    // Config inválido não esconde a biblioteca: só não dá para separar as pastas.
+    let watch = state.config().map(|c| watch_dirs(&c)).unwrap_or_default();
+    let mut items = journal.library(&LibraryQuery {
+        place,
+        category,
+        site: site.as_deref(),
+        since,
+        search: &search,
+        before_id,
+        limit: PAGE + 1,
+        watch: &watch,
+    })?;
+    let has_more = items.len() > PAGE;
+    items.truncate(PAGE);
+    Ok(LibraryPage {
+        items: items
+            .iter()
+            .map(|i| LibraryItemDto::new(i, &watch))
+            .collect(),
+        has_more,
+    })
+}
+
+#[derive(Serialize)]
+pub struct SiteDto {
+    site: String,
+    count: u64,
+}
+
+#[tauri::command(async)]
+pub fn library_sites(state: State<AppState>) -> CmdResult<Vec<SiteDto>> {
+    Ok(state
+        .journal()?
+        .top_sites(8)?
+        .into_iter()
+        .map(|(site, count)| SiteDto { site, count })
+        .collect())
+}
+
+#[tauri::command(async)]
+pub fn open_file(app: tauri::AppHandle, path: String) -> CmdResult<()> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_path(path, None::<&str>)
+        .map_err(CmdError::other)
+}
+
+#[tauri::command(async)]
+pub fn reveal(app: tauri::AppHandle, path: String) -> CmdResult<()> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .reveal_item_in_dir(path)
+        .map_err(CmdError::other)
+}
+
+/// Só http(s): a URL vem do registro do navegador, não do usuário.
+fn web_url(url: &str) -> Option<&str> {
+    let lower = url.to_ascii_lowercase();
+    (lower.starts_with("https://") || lower.starts_with("http://")).then_some(url)
+}
+
+#[tauri::command(async)]
+pub fn open_url(app: tauri::AppHandle, url: String) -> CmdResult<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let url = web_url(&url).ok_or_else(|| CmdError::other("só endereços http e https"))?;
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(CmdError::other)
+}
+
 // ---------- Daemon e atualização ao vivo ----------
 
 #[tauri::command(async)]
@@ -461,17 +554,39 @@ pub fn start_daemon(state: State<AppState>) -> CmdResult<DaemonStatus> {
 #[derive(Serialize)]
 pub struct Live {
     max_id: i64,
+    library: String,
     config_mtime: Option<String>,
 }
 
 #[tauri::command(async)]
 pub fn live(state: State<AppState>) -> CmdResult<Live> {
+    let journal = state.journal()?;
     Ok(Live {
-        max_id: state.journal()?.max_id()?,
+        max_id: journal.max_id()?,
+        library: journal.library_token()?,
         config_mtime: mtime_token(
             fs::metadata(&state.config_path)
                 .and_then(|m| m.modified())
                 .ok(),
         ),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::web_url;
+
+    #[test]
+    fn only_web_urls_are_opened() {
+        assert!(web_url("https://github.com/x").is_some());
+        assert!(web_url("HTTP://x.org").is_some());
+        for bad in [
+            "file:///etc/passwd",
+            "blob:https://github.com/x",
+            "javascript:alert(1)",
+            "",
+        ] {
+            assert!(web_url(bad).is_none(), "{bad}");
+        }
+    }
 }

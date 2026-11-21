@@ -166,7 +166,51 @@ export interface DaemonStatus {
 
 export interface Live {
   max_id: number
+  library: string
   config_mtime: string | null
+}
+
+export type Place = 'all' | 'in_watch' | 'organized' | 'trashed' | 'missing' | 'downloading'
+export type Category = 'document' | 'image' | 'video' | 'audio' | 'archive' | 'installer' | 'other'
+export type DownloadState = 'in_progress' | 'complete' | 'interrupted' | 'trashed' | 'gone'
+
+export interface LibraryItem {
+  id: number
+  name: string
+  path: string
+  path_display: string
+  folder_display: string
+  source: 'browser' | 'folder'
+  browser: string | null
+  url: string | null
+  referrer: string | null
+  page_title: string | null
+  site: string | null
+  category: Category
+  size: number | null
+  state: DownloadState
+  in_watch: boolean
+  started_at: number
+  last_action: Entry | null
+}
+
+export interface LibraryPage {
+  items: LibraryItem[]
+  has_more: boolean
+}
+
+export interface LibraryQuery {
+  place: Place
+  category: Category | null
+  site: string | null
+  since: number | null
+  search: string
+  beforeId: number | null
+}
+
+export interface Site {
+  site: string
+  count: number
 }
 
 // Os argumentos vão em camelCase; o Tauri converte para os nomes em snake_case do Rust.
@@ -194,4 +238,9 @@ export const api = {
   daemonStatus: () => invoke<DaemonStatus>('daemon_status'),
   startDaemon: () => invoke<DaemonStatus>('start_daemon'),
   live: () => invoke<Live>('live'),
+  library: (q: LibraryQuery) => invoke<LibraryPage>('library', { ...q }),
+  librarySites: () => invoke<Site[]>('library_sites'),
+  openFile: (path: string) => invoke<void>('open_file', { path }),
+  reveal: (path: string) => invoke<void>('reveal', { path }),
+  openUrl: (url: string) => invoke<void>('open_url', { url }),
 }

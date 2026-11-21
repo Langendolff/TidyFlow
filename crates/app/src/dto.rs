@@ -215,3 +215,56 @@ mod tests {
         assert_eq!(tilde_with(Path::new("/tmp/a"), ""), "/tmp/a");
     }
 }
+
+/// Item da Biblioteca.
+#[derive(Serialize)]
+pub struct LibraryItemDto {
+    pub id: i64,
+    pub name: String,
+    pub path: String,
+    pub path_display: String,
+    pub folder_display: String,
+    pub source: tidyflow_core::downloads::Source,
+    pub browser: Option<String>,
+    pub url: Option<String>,
+    pub referrer: Option<String>,
+    pub page_title: Option<String>,
+    pub site: Option<String>,
+    pub category: tidyflow_core::facts::Category,
+    pub size: Option<u64>,
+    pub state: tidyflow_core::downloads::DownloadState,
+    pub in_watch: bool,
+    pub started_at: i64,
+    pub last_action: Option<EntryDto>,
+}
+
+impl LibraryItemDto {
+    pub fn new(i: &tidyflow_core::downloads::LibraryItem, watch: &[std::path::PathBuf]) -> Self {
+        let d = &i.download;
+        let folder = d.current_path.parent().unwrap_or(Path::new("/"));
+        LibraryItemDto {
+            id: d.id,
+            name: d
+                .current_path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+            path: d.current_path.display().to_string(),
+            path_display: tilde(&d.current_path),
+            folder_display: tilde(folder),
+            source: d.source,
+            browser: d.browser.clone(),
+            url: d.url.clone(),
+            referrer: d.referrer.clone(),
+            page_title: d.page_title.clone(),
+            site: i.site.clone(),
+            category: i.category,
+            size: d.size,
+            state: d.state,
+            in_watch: watch.iter().any(|w| w == folder),
+            started_at: d.started_at,
+            last_action: i.last_action.as_ref().map(EntryDto::from),
+        }
+    }
+}

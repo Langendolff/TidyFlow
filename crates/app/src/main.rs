@@ -50,6 +50,11 @@ fn main() {
             commands::daemon_status,
             commands::start_daemon,
             commands::live,
+            commands::library,
+            commands::library_sites,
+            commands::open_file,
+            commands::reveal,
+            commands::open_url,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o TidyFlow");
