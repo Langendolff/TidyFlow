@@ -236,6 +236,7 @@ pub fn uninstall(_home: &Path) -> io::Result<Vec<PathBuf>> {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     fn json(p: &Path) -> serde_json::Value {
         serde_json::from_str(&fs::read_to_string(p).unwrap()).unwrap()
     }

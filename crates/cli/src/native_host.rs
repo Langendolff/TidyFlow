@@ -236,7 +236,7 @@ mod tests {
     fn finished_marks_complete_and_writes_xattrs() {
         let d = tempfile::tempdir().unwrap();
         let j = Journal::open(&d.path().join("j.db")).unwrap();
-        let p = d.path().join("a.pdf");
+        let p = tidyflow_core::real_path(&d.path().join("a.pdf"));
         fs::write(&p, "abc").unwrap();
         if !xattr_ok(&p) {
             return;
@@ -257,7 +257,7 @@ mod tests {
     fn finished_keeps_existing_origin() {
         let d = tempfile::tempdir().unwrap();
         let j = Journal::open(&d.path().join("j.db")).unwrap();
-        let p = d.path().join("a.pdf");
+        let p = tidyflow_core::real_path(&d.path().join("a.pdf"));
         fs::write(&p, "abc").unwrap();
         if !xattr_ok(&p) {
             return;
@@ -275,7 +275,7 @@ mod tests {
     fn finished_without_file_is_gone() {
         let d = tempfile::tempdir().unwrap();
         let j = Journal::open(&d.path().join("j.db")).unwrap();
-        let p = d.path().join("sumiu.pdf");
+        let p = tidyflow_core::real_path(&d.path().join("sumiu.pdf"));
         handle(&j, started(&p)).unwrap();
         handle(&j, finished(&p)).unwrap();
         assert_eq!(
@@ -288,7 +288,7 @@ mod tests {
     fn unknown_messages_are_harmless() {
         let d = tempfile::tempdir().unwrap();
         let j = Journal::open(&d.path().join("j.db")).unwrap();
-        let p = d.path().join("x.pdf");
+        let p = tidyflow_core::real_path(&d.path().join("x.pdf"));
         handle(&j, finished(&p)).unwrap();
         let renamed: Message = serde_json::from_value(serde_json::json!({
             "type": "renamed", "id": 9, "browser": "chromium", "path": p

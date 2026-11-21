@@ -180,7 +180,7 @@ jobs:
         run: |
           cargo build --release --locked -p tidyflow --target aarch64-apple-darwin
           cargo build --release --locked -p tidyflow --target x86_64-apple-darwin
-          lipo -create -output tidyflow \
+          lipo -create -output tidyflow-universal \
             target/aarch64-apple-darwin/release/tidyflow target/x86_64-apple-darwin/release/tidyflow
       - name: Pacote
         run: |
@@ -188,7 +188,7 @@ jobs:
           APP=target/universal-apple-darwin/release/bundle/macos/TidyFlow.app
           mkdir -p "$PKG" out
           cp -R "$APP" "$PKG/"
-          cp tidyflow "$PKG/TidyFlow.app/Contents/MacOS/tidyflow"
+          cp tidyflow-universal "$PKG/TidyFlow.app/Contents/MacOS/tidyflow"
           # Sem conta da Apple: assinatura ad hoc. O arm64 não roda nada sem assinatura.
           codesign --force --deep --sign - "$PKG/TidyFlow.app"
           codesign --verify --deep "$PKG/TidyFlow.app"
