@@ -1,3 +1,6 @@
+// Sem janela de console no Windows (em debug ela fica, para ver os logs).
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod commands;
 mod dto;
 mod system;

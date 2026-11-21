@@ -6,11 +6,13 @@
 
 **Sua pasta de Downloads se organiza sozinha.**
 
-Organizador automático de arquivos para Linux. Regras em TOML, tudo desfazível, nada sobrescrito.
+Organizador automático de arquivos para Linux, Windows e macOS. Regras em TOML, tudo desfazível, nada sobrescrito.
 
 [![Release](https://img.shields.io/github/v/release/Langendolff/TidyFlow?style=flat-square&color=0E9F6E)](https://github.com/Langendolff/TidyFlow/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/Langendolff/TidyFlow/ci.yml?style=flat-square&label=CI)](https://github.com/Langendolff/TidyFlow/actions/workflows/ci.yml)
 ![Linux](https://img.shields.io/badge/Linux-systemd-0E9F6E?style=flat-square&logo=linux&logoColor=white)
+![Windows](https://img.shields.io/badge/Windows-experimental-0078D4?style=flat-square&logo=windows&logoColor=white)
+![macOS](https://img.shields.io/badge/macOS-experimental-111827?style=flat-square&logo=apple&logoColor=white)
 ![Rust](https://img.shields.io/badge/Rust-2024-B7410E?style=flat-square&logo=rust&logoColor=white)
 ![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white)
 ![Offline](https://img.shields.io/badge/rede-nenhuma-111827?style=flat-square)
@@ -83,24 +85,67 @@ casaria).
 
 ## Download
 
-Baixe `TidyFlow-<versão>-linux-x64.tar.gz` na página de [**Releases**](https://github.com/Langendolff/TidyFlow/releases/latest)
-(Linux x64 com systemd; a interface precisa de `webkit2gtk-4.1`).
+Na página de [**Releases**](https://github.com/Langendolff/TidyFlow/releases/latest), cada
+versão traz um pacote por sistema e um `SHA256SUMS.txt`. Nenhum instalador liga o daemon
+sozinho: as regras de exemplo mandam para a lixeira o que está há mais de 30 dias em
+`~/Downloads`, então revise-as antes.
+
+> **Windows e macOS são experimentais.** O CI compila e testa o daemon, a CLI e o host da
+> extensão nos dois sistemas, mas a interface, as notificações e o menu de contexto ainda
+> não foram testados por ninguém neles. Problemas são bem-vindos nas [Issues](https://github.com/Langendolff/TidyFlow/issues).
+
+### Linux
+
+`TidyFlow-<versão>-linux-x64.tar.gz` (x64 com systemd; a interface precisa de `webkit2gtk-4.1`).
 
 ```sh
 tar xzf TidyFlow-*-linux-x64.tar.gz
 ./TidyFlow/install.sh                # binários em ~/.local/bin, config, atalho, ícone e menu de contexto
 nano ~/.config/tidyflow/config.toml  # revise as regras antes de ligar o daemon
 tidyflow check && tidyflow run --dry-run
-systemctl --user enable --now tidyflow
+tidyflow service enable              # liga o daemon (systemd do usuário)
 ```
 
-O `install.sh` não liga o daemon sozinho: as regras de exemplo mandam para a lixeira o que
-está há mais de 30 dias em `~/Downloads`. O pacote é gerado pelo GitHub Actions a cada nova
-tag `v*`, com um `SHA256SUMS.txt` ao lado.
+### Windows
+
+`TidyFlow-<versão>-windows-x64.zip` (Windows 10 ou 11; o WebView2 já vem no sistema).
+
+1. Extraia o zip e dê dois cliques em **`Instalar.cmd`**. Ele instala em
+   `%LOCALAPPDATA%\Programs\TidyFlow`, coloca o `tidyflow` no PATH, cria o atalho no Menu
+   Iniciar, registra o host da extensão e o item **Organizar com o TidyFlow** no menu de
+   contexto do Explorer (no Windows 11, em "Mostrar mais opções").
+2. Os binários não têm assinatura: se o SmartScreen avisar, clique em **Mais informações →
+   Executar assim mesmo**.
+3. Revise `%APPDATA%\TidyFlow\config.toml` e, num terminal novo:
+
+```powershell
+tidyflow check; tidyflow run --dry-run
+tidyflow service enable   # liga o daemon no login (sem janela)
+```
+
+Para remover: `%LOCALAPPDATA%\Programs\TidyFlow\uninstall.ps1` (o config e o histórico ficam).
+
+### macOS
+
+`TidyFlow-<versão>-macos-universal.zip` (Apple Silicon e Intel, macOS 11 ou mais novo).
+
+```sh
+cd ~/Downloads/TidyFlow   # a pasta extraída do zip
+sh install.sh             # TidyFlow.app em ~/Applications, comando em ~/.local/bin, Ação Rápida do Finder
+nano ~/Library/Application\ Support/TidyFlow/config.toml
+tidyflow check && tidyflow run --dry-run
+tidyflow service enable   # liga o daemon no login (LaunchAgent)
+```
+
+O app não tem assinatura da Apple. O `install.sh` tira a quarentena do download; se
+mesmo assim o macOS disser que o app não pode ser aberto, vá em **Ajustes do Sistema →
+Privacidade e Segurança → Abrir Mesmo Assim**. Na primeira vez que o daemon olhar a pasta
+Downloads, o macOS pede permissão: permita, ou o daemon não vê os arquivos. Para remover:
+`sh uninstall.sh` na pasta do pacote.
 
 ## Compilar a partir do código
 
-Requisitos: Rust (edição 2024) e systemd.
+Requisitos: Rust (edição 2024). No Linux, systemd para o daemon em segundo plano.
 
 ```sh
 git clone https://github.com/Langendolff/TidyFlow.git
@@ -112,11 +157,14 @@ cp config.example.toml ~/.config/tidyflow/config.toml
 tidyflow check                       # valida o config
 tidyflow run --dry-run               # mostra o que seria feito
 
-mkdir -p ~/.config/systemd/user
-cp contrib/tidyflow.service ~/.config/systemd/user/
-systemctl --user enable --now tidyflow
+tidyflow service enable              # grava a unit do systemd e liga o daemon
 journalctl --user -u tidyflow -f     # logs
 ```
+
+O config fica em `~/.config/tidyflow/config.toml` no Linux, em
+`~/Library/Application Support/TidyFlow/config.toml` no macOS e em
+`%APPDATA%\TidyFlow\config.toml` no Windows. No macOS e no Windows, o log do daemon fica
+em `daemon.log`, na mesma pasta.
 
 ## Comandos
 
@@ -128,6 +176,8 @@ journalctl --user -u tidyflow -f     # logs
 | `tidyflow undo [ID]` | desfaz a última ação (ou a ação ID) |
 | `tidyflow history [-n N]` | últimas ações |
 | `tidyflow check [ARQUIVO]` | valida o config / mostra qual regra casaria |
+| `tidyflow check --clear-keep ARQUIVO` | tira a marca de desfeito (o TidyFlow volta a organizar o arquivo) |
+| `tidyflow service enable` | liga o daemon no login e inicia agora (`disable`, `start`, `status`) |
 | `tidyflow browser install` | registra o host da extensão de navegador (`uninstall` remove) |
 
 Hyprland: `bind = SUPER, U, exec, tidyflow undo` para desfazer pelo teclado.
@@ -152,8 +202,10 @@ a monitorá-la quando ela aparecer (tenta de novo a cada 60s).
 
 ### Origem do download
 
-Lida do atributo estendido `user.xdg.origin.url`. Gravado por: Chromium/Chrome,
-`wget --xattr`, `curl --xattr` e, no Firefox, pela [extensão de navegador](#extensão-de-navegador).
+No Linux, lida do atributo estendido `user.xdg.origin.url`, gravado pelo Chromium/Chrome,
+por `wget --xattr`, por `curl --xattr` e, no Firefox, pela [extensão de navegador](#extensão-de-navegador).
+No macOS, também de `kMDItemWhereFroms` (Safari, Chrome e Firefox gravam). No Windows,
+também do `Zone.Identifier` que Edge, Chrome e Firefox gravam em cada download.
 
 `origin` é o host de onde o arquivo foi baixado, que muitas vezes é uma CDN
 (`objects.githubusercontent.com`). `site` é o host da página onde você clicou
@@ -164,8 +216,14 @@ Lida do atributo estendido `user.xdg.origin.url`. Gravado por: Chromium/Chrome,
 Desfazer é definitivo para aquele arquivo: o TidyFlow grava o xattr
 `user.tidyflow.keep` no arquivo restaurado e não mexe nele de novo. Onde o xattr
 não puder ser gravado, o histórico é usado no lugar. Para o TidyFlow organizar o
-arquivo de novo: `setfattr -x user.tidyflow.keep <arquivo>`. `tidyflow check <arquivo>`
-mostra se o arquivo está marcado.
+arquivo de novo: `tidyflow check --clear-keep <arquivo>`. `tidyflow check <arquivo>`
+mostra se o arquivo está marcado. No Windows, as marcas ficam em fluxos alternativos do
+NTFS (`arquivo:tidyflow.keep`) em vez de xattr.
+
+A lixeira é a do sistema. No macOS, desfazer um envio à lixeira só funciona para
+arquivos da pasta pessoal; de outro disco, restaure pelo Finder. Os botões **Desfazer** e
+**Abrir pasta** na notificação só existem no Linux; nos outros sistemas, desfaça pelo app
+ou com `tidyflow undo`.
 
 ## Interface
 
@@ -190,7 +248,9 @@ em outro (a janela carrega o Vite com recarga automática).
 
 ## Menu de contexto
 
-Dois itens: **Organizar com TidyFlow** (`tidyflow organize`) e **Testar no TidyFlow**
+No Windows, o `Instalar.cmd` cria **Organizar com o TidyFlow** no Explorer. No macOS, o
+`install.sh` instala a Ação Rápida **Organizar com o TidyFlow** (botão direito → Ações
+Rápidas). No Linux, dois itens: **Organizar com TidyFlow** (`tidyflow organize`) e **Testar no TidyFlow**
 (abre a tela Testar arquivo; com o app já aberto, só troca o arquivo).
 
 ```sh
@@ -234,11 +294,11 @@ computador, por native messaging, sem rede.
 TidyFlow/
 ├── crates/
 │   ├── core/   # regras, leitura de metadados, ações, histórico (SQLite), desfazer
-│   ├── cli/    # binário `tidyflow`: daemon, run, organize, undo, history, check
+│   ├── cli/    # binários `tidyflow` e `tidyflowd` (sem console no Windows)
 │   └── app/    # binário `tidyflow-app`: Tauri 2
 ├── ui/         # React + Vite + Tailwind, a interface do app
 ├── browser/    # extensão de navegador (WebExtension, TypeScript)
-└── contrib/    # unit do systemd, .desktop, install.sh, scripts do Nautilus e ações do Nemo
+└── contrib/    # instaladores (Linux, windows/, macos/), unit do systemd, Nautilus, Nemo
 ```
 
 O daemon, a CLI e o app usam o mesmo `core`, então uma regra se comporta igual em todos.

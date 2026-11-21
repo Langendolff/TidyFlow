@@ -37,6 +37,7 @@ fn manifest(family: Family, exe: &Path) -> serde_json::Value {
     m
 }
 
+#[cfg(unix)]
 fn manifest_name() -> String {
     format!("{HOST_NAME}.json")
 }

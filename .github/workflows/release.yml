@@ -1,34 +1,33 @@
-# Compila o pacote Linux para cada tag v* enviada e anexa ao release.
+# Compila os pacotes de Linux, Windows e macOS para cada tag v* e anexa ao release.
+# Tags com hífen (v0.2.0-rc.1) saem como pre-release.
 name: Release
 
 on:
   push:
     tags: ["v*"]
-  # Recompila a partir do branch escolhido e anexa a um release que já existe.
+  # Recompila a partir do branch escolhido e anexa ao release da tag (cria se faltar).
   workflow_dispatch:
     inputs:
       tag:
         description: "Tag do release, por exemplo v0.1.0"
         required: true
+      publish:
+        description: "Publicar no release (desmarcado: só gera os pacotes como artefatos)"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
 
 env:
-  GH_TOKEN: ${{ github.token }}
   TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
-  linux:
-    # 22.04 para o binário rodar em distros com glibc mais antiga.
-    runs-on: ubuntu-22.04
+  # Interface e extensão: iguais para todos os sistemas, compiladas uma vez.
+  frontend:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Dependências do Tauri
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
-      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -36,7 +35,6 @@ jobs:
           cache-dependency-path: |
             ui/package-lock.json
             browser/package-lock.json
-
       - name: Interface
         run: |
           npm --prefix ui ci
@@ -64,9 +62,43 @@ jobs:
           cp signed/*.xpi "../out/tidyflow-firefox-${TAG#v}.xpi"
           # update_url do manifest: o Firefox acha a versão nova por este arquivo.
           node updates.mjs "$TAG" > ../out/updates.json
+      # Exemplo para macOS/Windows: lá as pastas pessoais têm nome em inglês.
+      - name: Config de exemplo fora do Linux
+        run: |
+          sed -e 's|~/Documentos|~/Documents|g' -e 's|~/Imagens|~/Pictures|g' \
+              -e 's|\["iso", "AppImage", "deb"\]|["iso", "dmg", "pkg", "exe", "msi"]|' \
+              config.example.toml > out-config.example.toml
+          grep -q '~/Documents' out-config.example.toml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: config-other
+          path: out-config.example.toml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-browser
+          path: out/*
+
+  linux:
+    needs: frontend
+    # 22.04 para o binário rodar em distros com glibc mais antiga.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
+      - name: Dependências do Tauri
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+      - uses: dtolnay/rust-toolchain@stable
       - name: Binários
         run: cargo build --release --locked -p tidyflow -p tidyflow-app --features tidyflow-app/custom-protocol
-
       - name: Pacote
         run: |
           PKG=TidyFlow
@@ -79,9 +111,117 @@ jobs:
           cp crates/app/icons/32x32.png crates/app/icons/64x64.png crates/app/icons/128x128.png "$PKG/icons/"
           cp crates/app/icons/128x128@2x.png "$PKG/icons/256x256.png"
           tar czf "out/TidyFlow-${TAG#v}-linux-x64.tar.gz" "$PKG"
-          (cd out && sha256sum TidyFlow-* tidyflow-* > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-linux
+          path: out/*
 
+  windows:
+    needs: frontend
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: config-other
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Binários
+        run: cargo build --release --locked -p tidyflow -p tidyflow-app --features tidyflow-app/custom-protocol
+      - name: Pacote
+        shell: pwsh
+        run: |
+          $v = $env:TAG.TrimStart('v')
+          $pkg = 'TidyFlow'
+          New-Item -ItemType Directory -Force "$pkg\bin", out | Out-Null
+          foreach ($b in 'tidyflow', 'tidyflowd', 'tidyflow-app') {
+            Copy-Item "target\release\$b.exe" "$pkg\bin\"
+          }
+          Copy-Item contrib\windows\install.ps1, contrib\windows\uninstall.ps1, contrib\windows\Instalar.cmd, LICENSE, README.md $pkg
+          Copy-Item out-config.example.toml "$pkg\config.example.toml"
+          Compress-Archive -Path $pkg -DestinationPath "out\TidyFlow-$v-windows-x64.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-windows
+          path: out/*
+
+  macos:
+    needs: frontend
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: config-other
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # O bundler do Tauri monta o TidyFlow.app (Info.plist, ícone) e já compila o app
+      # universal com custom-protocol.
+      - name: TidyFlow.app
+        working-directory: crates/app
+        run: |
+          npx --yes @tauri-apps/cli@2 build --target universal-apple-darwin --bundles app \
+            --config '{"bundle":{"active":true}}'
+      - name: CLI universal
+        run: |
+          cargo build --release --locked -p tidyflow --target aarch64-apple-darwin
+          cargo build --release --locked -p tidyflow --target x86_64-apple-darwin
+          lipo -create -output tidyflow \
+            target/aarch64-apple-darwin/release/tidyflow target/x86_64-apple-darwin/release/tidyflow
+      - name: Pacote
+        run: |
+          PKG=TidyFlow
+          APP=target/universal-apple-darwin/release/bundle/macos/TidyFlow.app
+          mkdir -p "$PKG" out
+          cp -R "$APP" "$PKG/"
+          cp tidyflow "$PKG/TidyFlow.app/Contents/MacOS/tidyflow"
+          # Sem conta da Apple: assinatura ad hoc. O arm64 não roda nada sem assinatura.
+          codesign --force --deep --sign - "$PKG/TidyFlow.app"
+          codesign --verify --deep "$PKG/TidyFlow.app"
+          lipo -info "$PKG/TidyFlow.app/Contents/MacOS/tidyflow" "$PKG/TidyFlow.app/Contents/MacOS/tidyflow-app"
+          cp contrib/macos/install.sh contrib/macos/uninstall.sh LICENSE README.md "$PKG/"
+          cp -R "contrib/macos/Organizar com o TidyFlow.workflow" "$PKG/"
+          cp out-config.example.toml "$PKG/config.example.toml"
+          ditto -c -k --keepParent "$PKG" "out/TidyFlow-${TAG#v}-macos-universal.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-macos
+          path: out/*
+
+  publish:
+    needs: [frontend, linux, windows, macos]
+    if: github.event_name == 'push' || inputs.publish
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pkg-*
+          path: out
+          merge-multiple: true
       - name: Release
         run: |
-          gh release view "$TAG" || gh release create "$TAG" --title "TidyFlow ${TAG#v}" --generate-notes
-          gh release upload "$TAG" out/* --clobber
+          cd out
+          sha256sum TidyFlow-* tidyflow-* > SHA256SUMS.txt
+          ls -l
+          pre=""
+          case "$TAG" in *-*) pre="--prerelease" ;; esac
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --title "TidyFlow ${TAG#v}" --generate-notes $pre --target "$GITHUB_SHA"
+          gh release upload "$TAG" ./* --clobber

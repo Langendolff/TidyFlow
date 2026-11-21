@@ -80,7 +80,14 @@ pub fn write_message(w: &mut impl Write, v: &serde_json::Value) -> io::Result<()
     w.flush()
 }
 
-pub fn handle(journal: &Journal, msg: Message) -> tidyflow_core::Result<()> {
+pub fn handle(journal: &Journal, mut msg: Message) -> tidyflow_core::Result<()> {
+    // O daemon procura o download pelo caminho que o watcher entrega.
+    if let Message::Started { path, .. }
+    | Message::Finished { path, .. }
+    | Message::Renamed { path, .. } = &mut msg
+    {
+        *path = tidyflow_core::real_path(path);
+    }
     match msg {
         Message::Ping => {}
         Message::Started {

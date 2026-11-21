@@ -6,11 +6,13 @@
 
 **Your Downloads folder tidies itself.**
 
-Automatic file organizer for Linux. Rules in TOML, everything undoable, nothing overwritten.
+Automatic file organizer for Linux, Windows and macOS. Rules in TOML, everything undoable, nothing overwritten.
 
 [![Release](https://img.shields.io/github/v/release/Langendolff/TidyFlow?style=flat-square&color=0E9F6E)](https://github.com/Langendolff/TidyFlow/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/Langendolff/TidyFlow/ci.yml?style=flat-square&label=CI)](https://github.com/Langendolff/TidyFlow/actions/workflows/ci.yml)
 ![Linux](https://img.shields.io/badge/Linux-systemd-0E9F6E?style=flat-square&logo=linux&logoColor=white)
+![Windows](https://img.shields.io/badge/Windows-experimental-0078D4?style=flat-square&logo=windows&logoColor=white)
+![macOS](https://img.shields.io/badge/macOS-experimental-111827?style=flat-square&logo=apple&logoColor=white)
 ![Rust](https://img.shields.io/badge/Rust-2024-B7410E?style=flat-square&logo=rust&logoColor=white)
 ![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white)
 ![Offline](https://img.shields.io/badge/network-none-111827?style=flat-square)
@@ -84,24 +86,65 @@ is now and what TidyFlow did, with search and filters), **Rules** (edit, pause, 
 
 ## Download
 
-Get `TidyFlow-<version>-linux-x64.tar.gz` from the [**Releases**](https://github.com/Langendolff/TidyFlow/releases/latest)
-page (Linux x64 with systemd; the UI needs `webkit2gtk-4.1`).
+Each version on the [**Releases**](https://github.com/Langendolff/TidyFlow/releases/latest)
+page has one package per system and a `SHA256SUMS.txt`. No installer starts the daemon on
+its own: the example rules send anything older than 30 days in `~/Downloads` to the trash,
+so review them first.
+
+> **Windows and macOS are experimental.** CI builds and tests the daemon, the CLI and the
+> extension host on both, but nobody has tested the UI, notifications or context menu
+> there yet. Reports are welcome in the [Issues](https://github.com/Langendolff/TidyFlow/issues).
+
+### Linux
+
+`TidyFlow-<version>-linux-x64.tar.gz` (x64 with systemd; the UI needs `webkit2gtk-4.1`).
 
 ```sh
 tar xzf TidyFlow-*-linux-x64.tar.gz
 ./TidyFlow/install.sh                # binaries in ~/.local/bin, config, launcher, icon and context menu
 nano ~/.config/tidyflow/config.toml  # review the rules before starting the daemon
 tidyflow check && tidyflow run --dry-run
-systemctl --user enable --now tidyflow
+tidyflow service enable              # start the daemon (systemd user unit)
 ```
 
-`install.sh` does not start the daemon: the example rules send anything older than 30 days
-in `~/Downloads` to the trash. The package is built by GitHub Actions for each new `v*` tag,
-with a `SHA256SUMS.txt` next to it.
+### Windows
+
+`TidyFlow-<version>-windows-x64.zip` (Windows 10 or 11; WebView2 ships with the system).
+
+1. Extract the zip and double-click **`Instalar.cmd`**. It installs to
+   `%LOCALAPPDATA%\Programs\TidyFlow`, puts `tidyflow` on the PATH, adds a Start Menu
+   shortcut, registers the extension host and adds **Organizar com o TidyFlow** to the
+   Explorer context menu (on Windows 11, under "Show more options").
+2. The binaries are unsigned: if SmartScreen warns, click **More info → Run anyway**.
+3. Review `%APPDATA%\TidyFlow\config.toml` and, in a new terminal:
+
+```powershell
+tidyflow check; tidyflow run --dry-run
+tidyflow service enable   # start the daemon at login (no window)
+```
+
+To remove: `%LOCALAPPDATA%\Programs\TidyFlow\uninstall.ps1` (config and history are kept).
+
+### macOS
+
+`TidyFlow-<version>-macos-universal.zip` (Apple Silicon and Intel, macOS 11 or newer).
+
+```sh
+cd ~/Downloads/TidyFlow   # the folder extracted from the zip
+sh install.sh             # TidyFlow.app in ~/Applications, command in ~/.local/bin, Finder Quick Action
+nano ~/Library/Application\ Support/TidyFlow/config.toml
+tidyflow check && tidyflow run --dry-run
+tidyflow service enable   # start the daemon at login (LaunchAgent)
+```
+
+The app isn't signed by Apple. `install.sh` removes the download quarantine; if macOS
+still says the app can't be opened, go to **System Settings → Privacy & Security → Open
+Anyway**. The first time the daemon looks at Downloads, macOS asks for permission: allow
+it, or the daemon won't see the files. To remove: `sh uninstall.sh` in the package folder.
 
 ## Build from source
 
-Requirements: Rust (2024 edition) and systemd.
+Requirements: Rust (2024 edition). On Linux, systemd for the background daemon.
 
 ```sh
 git clone https://github.com/Langendolff/TidyFlow.git
@@ -113,11 +156,14 @@ cp config.example.toml ~/.config/tidyflow/config.toml
 tidyflow check                       # validate the config
 tidyflow run --dry-run               # show what would be done
 
-mkdir -p ~/.config/systemd/user
-cp contrib/tidyflow.service ~/.config/systemd/user/
-systemctl --user enable --now tidyflow
+tidyflow service enable              # writes the systemd unit and starts the daemon
 journalctl --user -u tidyflow -f     # logs
 ```
+
+The config lives in `~/.config/tidyflow/config.toml` on Linux,
+`~/Library/Application Support/TidyFlow/config.toml` on macOS and
+`%APPDATA%\TidyFlow\config.toml` on Windows. On macOS and Windows the daemon log is
+`daemon.log` in the same folder.
 
 ## Commands
 
@@ -129,6 +175,8 @@ journalctl --user -u tidyflow -f     # logs
 | `tidyflow undo [ID]` | undoes the last action (or action ID) |
 | `tidyflow history [-n N]` | latest actions |
 | `tidyflow check [FILE]` | validates the config / shows which rule would match |
+| `tidyflow check --clear-keep FILE` | removes the undone mark (TidyFlow organizes the file again) |
+| `tidyflow service enable` | starts the daemon at login and now (`disable`, `start`, `status`) |
 | `tidyflow browser install` | registers the browser extension's host (`uninstall` removes it) |
 
 Hyprland: `bind = SUPER, U, exec, tidyflow undo` to undo from the keyboard.
@@ -152,8 +200,10 @@ starts watching it once it appears (retrying every 60s).
 
 ### Download origin
 
-Read from the `user.xdg.origin.url` extended attribute. Written by: Chromium/Chrome,
+On Linux, read from the `user.xdg.origin.url` extended attribute, written by Chromium/Chrome,
 `wget --xattr`, `curl --xattr` and, on Firefox, by the [browser extension](#browser-extension).
+On macOS, also from `kMDItemWhereFroms` (Safari, Chrome and Firefox write it). On Windows,
+also from the `Zone.Identifier` that Edge, Chrome and Firefox write on every download.
 
 `origin` is the host the file was downloaded from, which is often a CDN
 (`objects.githubusercontent.com`). `site` is the host of the page you clicked on
@@ -163,8 +213,13 @@ Read from the `user.xdg.origin.url` extended attribute. Written by: Chromium/Chr
 
 Undo is final for that file: TidyFlow writes the `user.tidyflow.keep` xattr on the restored
 file and leaves it alone from then on. Where the xattr can't be written, the history is used
-instead. To let TidyFlow organize the file again: `setfattr -x user.tidyflow.keep <file>`.
-`tidyflow check <file>` shows whether the file is marked.
+instead. To let TidyFlow organize the file again: `tidyflow check --clear-keep <file>`.
+`tidyflow check <file>` shows whether the file is marked. On Windows the marks live in NTFS
+alternate data streams (`file:tidyflow.keep`) instead of xattrs.
+
+The trash is the system's. On macOS, undoing a trash action only works for files in your
+home folder; from another disk, restore it in Finder. The **Undo** and **Open folder**
+notification buttons only exist on Linux; elsewhere, undo from the app or with `tidyflow undo`.
 
 ## UI
 
@@ -189,7 +244,9 @@ another (the window loads Vite with hot reload).
 
 ## Context menu
 
-Two entries: **Organizar com TidyFlow** (`tidyflow organize`) and **Testar no TidyFlow**
+On Windows, `Instalar.cmd` adds **Organizar com o TidyFlow** to Explorer. On macOS,
+`install.sh` installs the **Organizar com o TidyFlow** Quick Action (right-click → Quick
+Actions). On Linux, two entries: **Organizar com TidyFlow** (`tidyflow organize`) and **Testar no TidyFlow**
 (opens the Test file screen; if the app is already open, it just switches the file).
 
 ```sh
@@ -232,11 +289,11 @@ through native messaging, with no network.
 TidyFlow/
 ├── crates/
 │   ├── core/   # rules, metadata, actions, history (SQLite), undo
-│   ├── cli/    # `tidyflow` binary: daemon, run, organize, undo, history, check
+│   ├── cli/    # `tidyflow` and `tidyflowd` binaries (no console window on Windows)
 │   └── app/    # `tidyflow-app` binary: Tauri 2
 ├── ui/         # React + Vite + Tailwind, the app's UI
 ├── browser/    # browser extension (WebExtension, TypeScript)
-└── contrib/    # systemd unit, .desktop, install.sh, Nautilus scripts and Nemo actions
+└── contrib/    # installers (Linux, windows/, macos/), systemd unit, Nautilus, Nemo
 ```
 
 The daemon, the CLI and the app share the same `core`, so a rule behaves the same everywhere.

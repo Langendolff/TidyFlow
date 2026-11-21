@@ -56,7 +56,7 @@ cat <<EOF
 Pronto. Próximos passos:
   1. Revise as regras em $CONFIG/tidyflow/config.toml
   2. tidyflow check && tidyflow run --dry-run
-  3. systemctl --user enable --now tidyflow
+  3. tidyflow service enable   (liga o daemon no login)
   4. Opcional: instale a extensão de navegador (veja o README, seção "Extensão de navegador")
 EOF
 case ":$PATH:" in

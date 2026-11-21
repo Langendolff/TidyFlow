@@ -32,6 +32,19 @@ fn xdg_dir(var: &str, fallback: &str) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(home()).join(fallback))
 }
 
+/// Caminho na forma que o watcher entrega. No macOS o FSEvents dá caminhos reais
+/// (`/private/var/…` para `/var/…`), então caminhos vindos de fora (navegador,
+/// linha de comando) passam pela pasta real; nos outros sistemas, inalterado.
+pub fn real_path(p: &std::path::Path) -> PathBuf {
+    #[cfg(target_os = "macos")]
+    if let (Some(dir), Some(name)) = (p.parent(), p.file_name())
+        && let Ok(real) = dir.canonicalize()
+    {
+        return real.join(name);
+    }
+    p.to_path_buf()
+}
+
 /// Pasta do config: `~/.config/tidyflow` (XDG), `~/Library/Application Support/TidyFlow`
 /// no macOS e `%APPDATA%\TidyFlow` no Windows.
 pub fn config_dir() -> PathBuf {

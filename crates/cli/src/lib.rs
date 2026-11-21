@@ -298,6 +298,7 @@ fn run(cmd: Cmd, config_path: &Path) -> tidyflow_core::Result<()> {
                 println!("aviso: pasta watch não existe: {}", dir.display());
             }
             if let Some(file) = file {
+                let file = tidyflow_core::real_path(&file);
                 let journal = Journal::open(&journal::default_path())?;
                 let f = engine::facts(&journal, &file)?;
                 println!(

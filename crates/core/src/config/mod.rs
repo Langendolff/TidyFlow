@@ -173,11 +173,18 @@ fn watch_dir(s: &str) -> PathBuf {
 }
 
 fn expand_tilde(s: &str) -> String {
-    match s.strip_prefix('~') {
+    let s = match s.strip_prefix('~') {
         Some(rest) if rest.is_empty() || rest.starts_with('/') || rest.starts_with('\\') => {
             format!("{}{rest}", crate::home())
         }
         _ => s.to_string(),
+    };
+    // No Windows, uma barra só: o navegador e o watcher mandam caminhos com `\`, e o
+    // histórico compara caminhos byte a byte.
+    if cfg!(windows) {
+        s.replace('/', "\\")
+    } else {
+        s
     }
 }
 
@@ -356,10 +363,7 @@ mod tests {
         assert_eq!(r.when.ext, Some(vec!["pdf".to_string(), "xml".to_string()]));
         assert_eq!(r.when.size_gt, Some(1_000));
         assert_eq!(r.when.older_than, Some(Duration::from_secs(172_800)));
-        assert_eq!(
-            r.action,
-            Action::Move(format!("{}/Docs/{{year}}/", crate::home()))
-        );
+        assert_eq!(r.action, Action::Move(expand_tilde("~/Docs/{year}/")));
     }
 
     #[test]
