@@ -62,6 +62,8 @@ jobs:
           npx web-ext sign --channel=unlisted -s dist/firefox -a signed \
             --api-key="$AMO_JWT_ISSUER" --api-secret="$AMO_JWT_SECRET"
           cp signed/*.xpi "../out/tidyflow-firefox-${TAG#v}.xpi"
+          # update_url do manifest: o Firefox acha a versão nova por este arquivo.
+          node updates.mjs "$TAG" > ../out/updates.json
       - name: Binários
         run: cargo build --release --locked -p tidyflow -p tidyflow-app --features tidyflow-app/custom-protocol
 

@@ -22,7 +22,7 @@ privadas nunca são informados. A comunicação é por native messaging com o bi
 
 2. Instale a extensão:
    - **Firefox:** o `.xpi` do [release](https://github.com/Langendolff/TidyFlow/releases/latest),
-     quando disponível. Para testar sem ele: `about:debugging` → Este Firefox →
+     assinado pela Mozilla. Ele se atualiza sozinho pelo `updates.json` do último release. Para testar sem ele: `about:debugging` → Este Firefox →
      Carregar extensão temporária → `dist/firefox/manifest.json` (some ao fechar o navegador).
    - **Chromium, Chrome, Brave:** `chrome://extensions` → Modo do desenvolvedor →
      Carregar sem compactação → `dist/chromium/` (ou o zip do release, descompactado).
@@ -41,6 +41,10 @@ npm run lint      # oxlint, tsc e web-ext lint (rode o build antes)
 npm test -- --run
 npm run package   # zips do release em dist/
 ```
+
+O `.xpi` é assinado no release pelo canal *unlisted* do AMO, com os segredos
+`AMO_JWT_ISSUER` e `AMO_JWT_SECRET`. O AMO assina cada versão uma vez só: não assine
+localmente uma versão que ainda vai sair em release.
 
 A conversão de eventos em mensagens fica em `src/messages.ts`, sem API do navegador,
 e é o que os testes cobrem. O ID fixo da extensão no Chromium vem da `key` em

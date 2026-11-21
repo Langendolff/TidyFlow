@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "lint": "oxlint --deny-warnings src build.mjs && tsc --noEmit && web-ext lint -s dist/firefox --self-hosted",
+    "lint": "oxlint --deny-warnings src build.mjs updates.mjs && tsc --noEmit && web-ext lint -s dist/firefox --self-hosted",
     "test": "vitest",
     "package": "node build.mjs --package"
   },

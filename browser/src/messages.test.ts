@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { GECKO_ID, UPDATE_URL, updatesJson } from '../updates.mjs'
 import { onChanged, onCreated, titleFor, type DownloadLike } from './messages'
 
 const item = (over: Partial<DownloadLike> = {}): DownloadLike => ({
@@ -112,5 +113,28 @@ describe('Chromium extension ID', () => {
     const id = [...hex].map((c) => String.fromCharCode(97 + parseInt(c, 16))).join('')
     const rust = readFileSync(new URL('../../crates/cli/src/browser.rs', import.meta.url), 'utf8')
     expect(rust).toContain(`pub const CHROMIUM_ID: &str = "${id}";`)
+  })
+})
+
+describe('Firefox updates', () => {
+  it('points the release at the signed .xpi', () => {
+    expect(updatesJson('0.2.0', 'v0.2.0')).toEqual({
+      addons: {
+        'tidyflow@langendolff.github.io': {
+          updates: [
+            {
+              version: '0.2.0',
+              update_link: 'https://github.com/Langendolff/TidyFlow/releases/download/v0.2.0/tidyflow-firefox-0.2.0.xpi',
+            },
+          ],
+        },
+      },
+    })
+  })
+
+  it('the Firefox manifest uses the same ID and update URL', () => {
+    const rust = readFileSync(new URL('../../crates/cli/src/browser.rs', import.meta.url), 'utf8')
+    expect(rust).toContain(`pub const FIREFOX_ID: &str = "${GECKO_ID}";`)
+    expect(UPDATE_URL).toBe('https://github.com/Langendolff/TidyFlow/releases/latest/download/updates.json')
   })
 })
