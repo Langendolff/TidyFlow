@@ -96,8 +96,13 @@ com o comando `tidyflow browser install`. Ela não guarda eventos para reenviar 
 little-endian, seguidos de JSON. Para cada mensagem:
 
 - `started`: insere uma linha em `downloads` com `state = 'in_progress'`.
-- `finished`: grava os xattrs no arquivo, depois atualiza `state = 'complete'`,
-  `finished_at` e `size`. Se o arquivo não existir mais, marca `state = 'gone'`.
+- `finished`: primeiro atualiza `state = 'complete'`, `finished_at` e `size`;
+  depois grava os xattrs no arquivo. Nessa ordem, quando o daemon recebe o evento
+  do xattr, o registro já diz que o download terminou. Além de origem e referrer
+  (só se ainda não existirem, porque o Chromium já grava os dois), o host sempre
+  grava `user.tidyflow.download` com o id da linha. Isso garante um evento de
+  metadados mesmo quando os outros xattrs já existiam, e liga o arquivo à linha da
+  biblioteca. Se o arquivo não existir mais, marca `state = 'gone'`.
 - `interrupted`: `state = 'interrupted'`.
 - `renamed`: atualiza `path`.
 
@@ -108,8 +113,12 @@ derruba o host.
 `~/.mozilla/native-messaging-hosts/`, `~/.config/chromium/NativeMessagingHosts/`
 e `~/.config/google-chrome/NativeMessagingHosts/`, apontando para o binário atual,
 com o ID da extensão em `allowed_extensions` (Firefox) ou `allowed_origins`
-(Chromium). Nome do host: `io.github.langendolff.tidyflow`. `uninstall` remove
-esses arquivos. O `install.sh` chama `browser install`.
+(Chromium). Também cobre LibreWolf (`~/.librewolf/`) e Brave, quando a pasta de
+configuração do navegador existe. O manifest não aceita argumentos, então ele
+aponta para um script `~/.local/share/tidyflow/native-host` que faz
+`exec <binário> native-host "$@"`. Nome do host: `io.github.langendolff.tidyflow`.
+`uninstall` remove esses arquivos. O `install.sh` chama `browser install`.
+Navegadores em Flatpak ou Snap ficam fora desta fase.
 
 ### Daemon
 
@@ -143,7 +152,7 @@ Tabela `downloads` (migração v3), que também serve de biblioteca:
 ```
 id, source ('browser' | 'folder'), browser, browser_id,
 path            caminho onde o arquivo chegou
-current_path    onde ele está agora (NULL se foi para a lixeira ou sumiu)
+current_path    onde ele está agora (ou onde estava antes da lixeira)
 url, referrer, page_title, mime, size,
 state           'in_progress' | 'complete' | 'interrupted' | 'trashed' | 'gone'
 started_at, finished_at
@@ -154,7 +163,8 @@ started_at, finished_at
   o daemon os vê pela primeira vez, com a origem lida do xattr.
 - `current_path` acompanha o arquivo: quando o engine grava uma ação no journal, a
   mesma transação atualiza as linhas cujo `current_path` era o `src`. Lixeira grava
-  `state = 'trashed'` e `current_path = NULL`. O desfazer faz o caminho inverso.
+  `state = 'trashed'` e mantém o último caminho em `current_path`. O desfazer faz o
+  caminho inverso.
 - O `sweep_gone` da fase 2 também marca como `gone` as linhas cujo `current_path`
   não existe mais.
 - Para onde o usuário levou um arquivo à mão não é rastreado nesta fase: exigiria
@@ -179,9 +189,9 @@ Item novo na barra lateral, entre Visão geral e Regras.
 
 ### Agrupamento (sem IA)
 
-Os candidatos são os arquivos nas pastas monitoradas que nenhuma regra pega, mais
-os arquivos da biblioteca dos últimos 90 dias que ficaram parados na pasta de
-downloads. Os grupos são formados nesta ordem:
+Os candidatos são os arquivos nas pastas monitoradas que nenhuma regra pega. A
+biblioteca completa os metadados (site, título da página). Cada arquivo entra em
+no máximo um grupo, e os grupos são formados nesta ordem:
 
 1. Mesmo `site` e mesma família de MIME (`application/pdf`, `image/*`...).
 2. Mesmo padrão de nome: dígitos viram `#` e os tokens iniciais em comum são o
@@ -197,8 +207,9 @@ desfazeres e pelo menos 30% das ações da regra nos últimos 30 dias. A sugest�
 "rever a regra", com os arquivos desfeitos como exemplo, sem proposta automática.
 
 Sem Ollama, a proposta de cada grupo é montada por modelo fixo: as condições do
-critério e `move` para `~/Documentos/{site}/`, `~/Imagens/{site}/` e assim por
-diante, pela família de MIME. O nome é descritivo ("PDFs de nubank.com.br").
+critério e `move` para a pasta XDG do tipo (`~/Documentos/{site}/`,
+`~/Imagens/{site}/`... lidas de `~/.config/user-dirs.dirs`), pela família de MIME.
+Instaladores e compactados vão para subpastas da própria pasta monitorada. O nome é descritivo ("PDFs de nubank.com.br").
 
 ### Ollama
 
@@ -258,8 +269,8 @@ Item novo na barra lateral: Sugestões, com o número de sugestões novas.
   (`Editor::save_rule` na posição calculada), **Editar antes** (abre o editor de
   regras preenchido) e **Dispensar**.
 - Aceitar não move nada na hora. A regra passa a valer pelo daemon, e o cartão
-  oferece "Aplicar agora aos N arquivos", que usa `engine::organize` e fica no
-  histórico como qualquer ação.
+  oferece "Aplicar agora aos N arquivos", que usa `engine::process` (respeita
+  `watch` e a marca de desfeito) e fica no histórico como qualquer ação.
 
 ### CLI
 
