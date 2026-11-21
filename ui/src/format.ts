@@ -1,5 +1,5 @@
 // Formatação para a interface. Só apresentação: nenhuma regra de negócio aqui.
-import type { ConditionKey, DraftAction, Entry, Kind, RuleDraft } from './api'
+import type { Category, ConditionKey, DraftAction, Entry, Kind, LibraryItem, RuleDraft } from './api'
 
 const MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 
@@ -188,5 +188,31 @@ export function historyDetail(e: Entry): string {
       return `${folder(e.src_display)} → Lixeira${e.size != null ? ` · ${size(e.size)}` : ''}`
     default:
       return `${folder(e.src_display)} → ${folder(e.dst_display ?? '')}`
+  }
+}
+
+export const CATEGORY_LABEL: Record<Category, string> = {
+  document: 'Documento',
+  image: 'Imagem',
+  video: 'Vídeo',
+  audio: 'Áudio',
+  archive: 'Compactado',
+  installer: 'Instalador',
+  other: 'Outro',
+}
+
+/** Coluna "Onde está" da biblioteca. */
+export function libraryWhere(i: LibraryItem): string {
+  switch (i.state) {
+    case 'in_progress':
+      return 'baixando…'
+    case 'trashed':
+      return 'na lixeira'
+    case 'gone':
+      return 'não encontrado'
+    case 'interrupted':
+      return 'download interrompido'
+    default:
+      return i.folder_display
   }
 }

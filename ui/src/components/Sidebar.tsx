@@ -1,13 +1,14 @@
-import { Circle, FileSearch, ListFilter, RotateCcw } from 'lucide-react'
+import { Circle, FileSearch, Library, ListFilter, RotateCcw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api, errorMessage, type DaemonStatus } from '../api'
 import { useToast } from './toast'
 import icon from '../assets/icon.svg'
 
-export type Screen = 'overview' | 'rules' | 'history' | 'test'
+export type Screen = 'overview' | 'library' | 'rules' | 'history' | 'test'
 
 const NAV: { id: Screen; label: string; icon: typeof Circle }[] = [
   { id: 'overview', label: 'Visão geral', icon: Circle },
+  { id: 'library', label: 'Biblioteca', icon: Library },
   { id: 'rules', label: 'Regras', icon: ListFilter },
   { id: 'history', label: 'Histórico', icon: RotateCcw },
   { id: 'test', label: 'Testar arquivo', icon: FileSearch },

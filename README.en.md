@@ -70,12 +70,16 @@ keyboard shortcut.
 <img src="docs/images/rules.png" width="820" alt="Rule editor">
 </p>
 <p align="center">
+<img src="docs/images/library.png" width="820" alt="Download library">
+</p>
+<p align="center">
 <img src="docs/images/history.png" width="405" alt="History with undo">&nbsp;
 <img src="docs/images/test.png" width="405" alt="Test a file">
 </p>
 
-Four screens: **Overview** (numbers, recent activity, watched folders, scan or simulate),
-**Rules** (edit, pause, drag to reorder), **History** (search, filters, undo) and **Test file**
+Five screens: **Overview** (numbers, recent activity, watched folders, scan or simulate),
+**Library** (everything that arrived in the watched folders: which site it came from, where it
+is now and what TidyFlow did, with search and filters), **Rules** (edit, pause, drag to reorder), **History** (search, filters, undo) and **Test file**
 (what TidyFlow reads from a file and which rule would match).
 
 ## Download

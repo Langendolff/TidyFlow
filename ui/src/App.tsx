@@ -5,6 +5,7 @@ import { ToastProvider } from './components/feedback'
 import { Sidebar, type Screen } from './components/Sidebar'
 import { useLive } from './hooks/useLive'
 import { History } from './screens/History'
+import { Library } from './screens/Library'
 import { Overview } from './screens/Overview'
 import { Rules } from './screens/Rules'
 import { TestFile } from './screens/TestFile'
@@ -40,6 +41,7 @@ export default function App() {
         <Sidebar screen={screen} onNavigate={(s) => go(s)} />
         <main className="min-w-0 flex-1 overflow-auto px-8 pt-7 pb-8">
           {screen === 'overview' && <Overview version={version} go={go} />}
+          {screen === 'library' && <Library version={version} go={go} />}
           {screen === 'rules' && <Rules version={version} />}
           {screen === 'history' && <History key={filter} version={version} initialFilter={filter} />}
           {screen === 'test' && <TestFile file={file} onFile={setFile} />}

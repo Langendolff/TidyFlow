@@ -68,12 +68,16 @@ um atalho de teclado.
 <img src="docs/images/rules.png" width="820" alt="Editor de regras">
 </p>
 <p align="center">
+<img src="docs/images/library.png" width="820" alt="Biblioteca de downloads">
+</p>
+<p align="center">
 <img src="docs/images/history.png" width="405" alt="Histórico com desfazer">&nbsp;
 <img src="docs/images/test.png" width="405" alt="Testar arquivo">
 </p>
 
-Quatro telas: **Visão geral** (números, atividade recente, pastas monitoradas, varrer ou
-simular), **Regras** (editar, pausar, arrastar para reordenar), **Histórico** (busca,
+Cinco telas: **Visão geral** (números, atividade recente, pastas monitoradas, varrer ou
+simular), **Biblioteca** (tudo o que chegou nas pastas monitoradas: de que site veio, onde
+está agora e o que o TidyFlow fez, com busca e filtros), **Regras** (editar, pausar, arrastar para reordenar), **Histórico** (busca,
 filtros, desfazer) e **Testar arquivo** (o que o TidyFlow lê de um arquivo e qual regra
 casaria).
 
