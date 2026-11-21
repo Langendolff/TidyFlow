@@ -425,6 +425,7 @@ mod tests {
         assert!(err.message.contains("maior que zero"), "{err}");
     }
 
+    #[cfg(unix)]
     #[test]
     fn missing_watch_dirs_are_listed_not_errors() {
         let src = "[[rule]]\nname = \"r\"\nwatch = [\"/nao/existe/b\", \"/nao/existe/a\", \"/nao/existe/b\", \"/tmp\"]\nwhen = { ext = [\"pdf\"] }\naction = { trash = true }\n";

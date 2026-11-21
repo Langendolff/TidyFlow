@@ -368,7 +368,8 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("journal quebrado"), "{err}");
-        assert!(err.contains("File exists"), "{err}");
+        // A falha da ação vem primeiro (a mensagem do sistema muda por SO).
+        assert!(!err.starts_with("journal quebrado"), "{err}");
     }
 
     #[test]

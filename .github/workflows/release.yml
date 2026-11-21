@@ -47,7 +47,9 @@ jobs:
           cp browser/dist/tidyflow-chromium-*.zip out/
       # O .xpi do Firefox só é instalável assinado. As chaves de API do AMO ficam nos
       # segredos do repositório; sem elas, o release sai sem o .xpi.
+      # Execução de teste (publish desmarcado) não assina: cada versão só pode ir ao AMO uma vez.
       - name: Assinar extensão do Firefox
+        if: github.event_name == 'push' || inputs.publish
         env:
           AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
           AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}

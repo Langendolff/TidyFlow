@@ -237,7 +237,7 @@ fn download_msg(kind: &str, path: &std::path::Path) -> serde_json::Value {
 #[test]
 fn native_host_speaks_the_protocol() {
     let e = env();
-    let p = e.watch.join("a.pdf");
+    let p = tidyflow_core::real_path(&e.watch.join("a.pdf"));
     fs::write(&p, "x").unwrap();
     let mut input = frame(&download_msg("started", &p));
     input.extend(4u32.to_le_bytes());

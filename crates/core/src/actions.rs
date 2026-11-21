@@ -152,12 +152,23 @@ fn to_trash(path: &Path) -> io::Result<Option<PathBuf>> {
     Ok(None)
 }
 
+/// Mesmo caminho, ignorando a forma: no Windows a lixeira guarda o nome longo e o
+/// caminho pode vir com nome curto 8.3 (`RUNNER~1`) ou outra caixa.
+#[cfg(not(target_os = "macos"))]
+fn same_path(a: &Path, b: &Path) -> bool {
+    let canon = |p: &Path| {
+        let dir = p.parent()?.canonicalize().ok()?;
+        Some(dir.join(p.file_name()?))
+    };
+    a == b || canon(a).is_some_and(|c| Some(c) == canon(b))
+}
+
 #[cfg(not(target_os = "macos"))]
 fn restore_from_trash(src: &Path) -> io::Result<()> {
     let item = trash::os_limited::list()
         .map_err(|e| io::Error::other(e.to_string()))?
         .into_iter()
-        .filter(|i| i.original_path() == src)
+        .filter(|i| same_path(&i.original_path(), src))
         .max_by_key(|i| i.time_deleted)
         .ok_or_else(|| {
             io::Error::new(
@@ -350,6 +361,8 @@ mod tests {
         let src = d.path().join("a.bin");
         let dst = d.path().join("b.bin");
         fs::write(&src, vec![7u8; 10_000]).unwrap();
+        // Antes do mtime: no Windows, gravar um fluxo alternativo muda o mtime.
+        crate::meta::set(&src, crate::meta::Tag::Origin, "http://x").unwrap();
         let old = std::time::SystemTime::now() - std::time::Duration::from_secs(86_400 * 30);
         fs::File::options()
             .write(true)
@@ -357,7 +370,6 @@ mod tests {
             .unwrap()
             .set_modified(old)
             .unwrap();
-        crate::meta::set(&src, crate::meta::Tag::Origin, "http://x").unwrap();
         move_via_copy(&src, &dst).unwrap();
         assert!(!src.exists());
         assert_eq!(fs::metadata(&dst).unwrap().modified().unwrap(), old);
