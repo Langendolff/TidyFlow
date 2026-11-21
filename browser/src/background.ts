@@ -50,20 +50,32 @@ async function dispatch(msgs: HostMessage[]): Promise<void> {
   }
 }
 
-// Registrados no topo: o service worker precisa deles na primeira execução.
-api.downloads.onCreated.addListener(async (d) => {
-  const item = d as unknown as DownloadLike
-  const msg = onCreated(item, BROWSER, await pageTitle(item.referrer))
-  if (msg) await dispatch([msg])
-})
+// Um evento por vez: num download rápido, "criado" e "mudou" chegam quase juntos.
+// Em paralelo, os dois viam o download como não iniciado e mandavam `started` duas vezes.
+let queue: Promise<void> = Promise.resolve()
 
-api.downloads.onChanged.addListener(async (delta) => {
-  const [found] = await api.downloads.search({ id: delta.id })
-  const item = found as unknown as DownloadLike | undefined
-  const started = (await startedIds()).includes(delta.id)
-  const title = started ? null : await pageTitle(item?.referrer)
-  await dispatch(onChanged(delta, item, BROWSER, started, title))
-})
+function serial(task: () => Promise<void>): void {
+  queue = queue.then(task).catch((e) => console.error('TidyFlow:', e))
+}
+
+// Registrados no topo: o service worker precisa deles na primeira execução.
+api.downloads.onCreated.addListener((d) =>
+  serial(async () => {
+    const item = d as unknown as DownloadLike
+    const msg = onCreated(item, BROWSER, await pageTitle(item.referrer))
+    if (msg) await dispatch([msg])
+  }),
+)
+
+api.downloads.onChanged.addListener((delta) =>
+  serial(async () => {
+    const [found] = await api.downloads.search({ id: delta.id })
+    const item = found as unknown as DownloadLike | undefined
+    const started = (await startedIds()).includes(delta.id)
+    const title = started ? null : await pageTitle(item?.referrer)
+    await dispatch(onChanged(delta, item, BROWSER, started, title))
+  }),
+)
 
 api.action.onClicked.addListener(() => {
   void api.tabs.create({ url: api.runtime.getURL('setup.html') })

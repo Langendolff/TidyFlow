@@ -157,7 +157,32 @@ fn download(r: &Row) -> rusqlite::Result<Download> {
 }
 
 impl Journal {
+    /// Registra o início. Um `started` repetido (o navegador dispara criado e mudou
+    /// quase juntos) devolve a mesma linha; um download antigo ainda em andamento com
+    /// o mesmo id (de outra sessão do navegador) é dado como interrompido.
     pub fn download_started(&self, s: &Started) -> Result<i64> {
+        let existing: Option<(i64, i64)> = self
+            .conn
+            .query_row(
+                "SELECT id, started_at FROM downloads WHERE browser = ?1 AND browser_id = ?2 \
+                 AND state = 'in_progress' ORDER BY id DESC LIMIT 1",
+                params![s.browser, s.browser_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        match existing {
+            Some((id, at)) if at == s.started_at => {
+                self.conn.execute(
+                    "UPDATE downloads SET path = ?2, current_path = ?2, \
+                     referrer = COALESCE(referrer, ?3), page_title = COALESCE(page_title, ?4), \
+                     mime = COALESCE(mime, ?5) WHERE id = ?1",
+                    params![id, bytes(s.path), s.referrer, s.page_title, s.mime],
+                )?;
+                return Ok(id);
+            }
+            Some((id, _)) => self.download_set_state(id, DownloadState::Interrupted)?,
+            None => {}
+        }
         self.conn.execute(
             "INSERT INTO downloads (source, browser, browser_id, path, current_path, url, \
              referrer, page_title, mime, state, started_at) \
@@ -244,14 +269,13 @@ impl Journal {
         Ok(self.conn.query_row(&sql, [id], download).optional()?)
     }
 
-    /// Há um download `in_progress` para este caminho, iniciado depois de `since`.
+    /// O registro mais recente deste caminho é um download em andamento, iniciado
+    /// depois de `since`. Só o mais recente conta: uma linha antiga que ficou presa
+    /// em andamento não pode segurar um arquivo que já terminou de baixar.
     pub fn download_active(&self, path: &Path, since: SystemTime) -> Result<bool> {
-        Ok(self.conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM downloads WHERE current_path = ?1 \
-             AND state = 'in_progress' AND started_at >= ?2)",
-            params![bytes(path), secs(since)],
-            |r| r.get(0),
-        )?)
+        Ok(self
+            .download_at(path)?
+            .is_some_and(|d| d.state == DownloadState::InProgress && d.started_at >= secs(since)))
     }
 
     /// Há um download `complete` para este caminho que terminou depois de `since`.
@@ -381,6 +405,61 @@ mod tests {
         let d = j.download_finished("firefox", 3, 2).unwrap().unwrap();
         assert_eq!(d.id, second);
         assert_eq!(j.download(first).unwrap().unwrap().size, Some(1));
+    }
+
+    #[test]
+    fn repeated_started_is_the_same_download() {
+        let (_d, j) = open();
+        let p = Path::new("/dl/README.md");
+        let now = crate::journal::now();
+        let mut s = started(p, 2, now);
+        s.page_title = None;
+        let a = j.download_started(&s).unwrap();
+        s.page_title = Some("Título");
+        let b = j.download_started(&s).unwrap();
+        assert_eq!(a, b);
+        assert_eq!(
+            j.download(a).unwrap().unwrap().page_title.as_deref(),
+            Some("Título")
+        );
+        j.download_finished("firefox", 2, 10).unwrap();
+        assert!(!j.download_active(p, ago(60)).unwrap());
+    }
+
+    #[test]
+    fn same_id_from_an_older_session_is_interrupted() {
+        let (_d, j) = open();
+        let now = crate::journal::now();
+        let old = j
+            .download_started(&started(Path::new("/dl/a.pdf"), 2, now - 600))
+            .unwrap();
+        let new = j
+            .download_started(&started(Path::new("/dl/b.pdf"), 2, now))
+            .unwrap();
+        assert_ne!(old, new);
+        assert_eq!(
+            j.download(old).unwrap().unwrap().state,
+            DownloadState::Interrupted
+        );
+    }
+
+    #[test]
+    fn only_the_latest_row_of_a_path_counts() {
+        let (_d, j) = open();
+        let p = Path::new("/dl/a.pdf");
+        let now = crate::journal::now();
+        // linha antiga presa em andamento (ex.: banco gravado pela versão com o bug)
+        j.conn
+            .execute(
+                "INSERT INTO downloads (source, browser, browser_id, path, current_path, state, started_at) \
+                 VALUES ('browser', 'firefox', 9, ?1, ?1, 'in_progress', ?2)",
+                params![bytes(p), now],
+            )
+            .unwrap();
+        assert!(j.download_active(p, ago(60)).unwrap());
+        j.download_started(&started(p, 2, now)).unwrap();
+        j.download_finished("firefox", 2, 1).unwrap();
+        assert!(!j.download_active(p, ago(60)).unwrap());
     }
 
     #[test]
