@@ -22,8 +22,9 @@ privadas nunca são informados. A comunicação é por native messaging com o bi
 
 2. Instale a extensão:
    - **Firefox:** o `.xpi` do [release](https://github.com/Langendolff/TidyFlow/releases/latest),
-     assinado pela Mozilla. Ele se atualiza sozinho pelo `updates.json` do último release. Para testar sem ele: `about:debugging` → Este Firefox →
-     Carregar extensão temporária → `dist/firefox/manifest.json` (some ao fechar o navegador).
+     assinado pela Mozilla. Ele se atualiza sozinho pelo `updates.json` do último
+     release. Para testar sem ele: `about:debugging` → Este Firefox → Carregar
+     extensão temporária → `dist/firefox/manifest.json` (some ao fechar o navegador).
    - **Chromium, Chrome, Brave:** `chrome://extensions` → Modo do desenvolvedor →
      Carregar sem compactação → `dist/chromium/` (ou o zip do release, descompactado).
 
