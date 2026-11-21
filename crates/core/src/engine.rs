@@ -67,6 +67,9 @@ pub fn process(
     now: SystemTime,
 ) -> Result<Report> {
     let facts = facts(journal, path)?;
+    if !dry_run {
+        journal.ensure_download(&facts)?;
+    }
     if facts.keep || journal.was_undone_src(path)? {
         return Ok(Report::NoMatch); // restaurado por undo
     }
@@ -450,6 +453,125 @@ mod tests {
         let f = facts(&e.journal, &p).unwrap();
         assert_eq!(f.origin_host().as_deref(), Some("x.com"));
         assert_eq!(f.site().as_deref(), Some("site.com"));
+    }
+
+    fn row(e: &Env, p: &Path) -> Option<downloads::Download> {
+        e.journal.download_at(p).unwrap()
+    }
+
+    #[test]
+    fn process_registers_folder_file() {
+        let e = env();
+        let txt = e.watch.join("nota.txt");
+        fs::write(&txt, "x").unwrap();
+        let now = SystemTime::now();
+        process(&e.cfg, &e.journal, &txt, true, now).unwrap();
+        assert!(row(&e, &txt).is_none(), "dry-run não grava");
+        process(&e.cfg, &e.journal, &txt, false, now).unwrap();
+        process(&e.cfg, &e.journal, &txt, false, now).unwrap();
+        let d = row(&e, &txt).unwrap();
+        assert_eq!(d.source, downloads::Source::Folder);
+        assert_eq!(d.state, downloads::DownloadState::Complete);
+        let mtime = fs::metadata(&txt).unwrap().modified().unwrap();
+        assert_eq!(
+            d.started_at,
+            mtime
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64
+        );
+        let n: i64 = e
+            .journal
+            .conn
+            .query_row("SELECT COUNT(*) FROM downloads", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn current_path_follows_move_and_undo() {
+        let e = env();
+        let p = e.watch.join("a.pdf");
+        fs::write(&p, "x").unwrap();
+        let Report::Done { id, done, .. } =
+            process(&e.cfg, &e.journal, &p, false, SystemTime::now()).unwrap()
+        else {
+            panic!("esperava Done")
+        };
+        let dst = done.dst.unwrap();
+        let d = row(&e, &dst).expect("registro segue o arquivo");
+        assert_eq!(d.path, p);
+        undo(&e.journal, Some(id)).unwrap();
+        assert_eq!(row(&e, &p).unwrap().id, d.id);
+        assert!(row(&e, &dst).is_none());
+    }
+
+    fn with_action(e: &Env, action: &str) -> Config {
+        config::parse(&format!(
+            "[[rule]]\nname = \"r\"\nwatch = [\"{}\"]\nwhen = {{ ext = [\"pdf\"] }}\naction = {action}\n",
+            e.watch.display()
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn trash_rename_and_copy_in_the_library() {
+        let e = env();
+        let p = e.watch.join("a.pdf");
+        fs::write(&p, "x").unwrap();
+
+        let copy = with_action(&e, &format!("{{ copy = \"{}\" }}", e.out.display()));
+        process(&copy, &e.journal, &p, false, SystemTime::now()).unwrap();
+        assert_eq!(
+            row(&e, &p).unwrap().state,
+            downloads::DownloadState::Complete
+        );
+
+        let rename = with_action(&e, "{ rename = \"b.{ext}\" }");
+        let Report::Done { id, done, .. } =
+            process(&rename, &e.journal, &p, false, SystemTime::now()).unwrap()
+        else {
+            panic!("esperava Done")
+        };
+        let b = done.dst.unwrap();
+        assert!(row(&e, &b).is_some());
+        undo(&e.journal, Some(id)).unwrap();
+        assert!(row(&e, &p).is_some() && row(&e, &b).is_none());
+        actions::clear_keep(&p);
+        e.journal.conn.execute("DELETE FROM actions", []).unwrap();
+
+        let trash = with_action(&e, "{ trash = true }");
+        let Report::Done { id, .. } =
+            process(&trash, &e.journal, &p, false, SystemTime::now()).unwrap()
+        else {
+            panic!("esperava Done")
+        };
+        assert_eq!(
+            row(&e, &p).unwrap().state,
+            downloads::DownloadState::Trashed
+        );
+        e.journal.sweep_gone().unwrap();
+        assert_eq!(
+            row(&e, &p).unwrap().state,
+            downloads::DownloadState::Trashed,
+            "lixeira não vira 'sumiu'"
+        );
+        undo(&e.journal, Some(id)).unwrap();
+        assert_eq!(
+            row(&e, &p).unwrap().state,
+            downloads::DownloadState::Complete
+        );
+    }
+
+    #[test]
+    fn sweep_marks_missing_files_gone() {
+        let e = env();
+        let p = e.watch.join("nota.txt");
+        fs::write(&p, "x").unwrap();
+        process(&e.cfg, &e.journal, &p, false, SystemTime::now()).unwrap();
+        fs::remove_file(&p).unwrap();
+        e.journal.sweep_gone().unwrap();
+        assert_eq!(row(&e, &p).unwrap().state, downloads::DownloadState::Gone);
     }
 
     #[test]

@@ -136,6 +136,68 @@ impl Facts {
     }
 }
 
+/// Tipo do arquivo para os filtros da biblioteca.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Category {
+    Document,
+    Image,
+    Video,
+    Audio,
+    Archive,
+    Installer,
+    Other,
+}
+
+const INSTALLERS: [&str; 9] = [
+    "deb",
+    "rpm",
+    "appimage",
+    "iso",
+    "exe",
+    "msi",
+    "dmg",
+    "flatpak",
+    "pkg.tar.zst",
+];
+const ARCHIVES: [&str; 11] = [
+    "zip", "tar", "gz", "tgz", "bz2", "xz", "zst", "7z", "rar", "tar.gz", "tar.xz",
+];
+const DOCUMENTS: [&str; 14] = [
+    "pdf", "doc", "docx", "odt", "rtf", "txt", "md", "epub", "xls", "xlsx", "ods", "csv", "ppt",
+    "pptx",
+];
+
+/// Pela extensão primeiro (instaladores e compactados têm MIMEs genéricos), depois
+/// pelo MIME. `name` serve para extensões duplas como `pkg.tar.zst`.
+pub fn category(mime: &str, name: &str) -> Category {
+    let lower = name.to_lowercase();
+    let has = |exts: &[&str]| exts.iter().any(|e| lower.ends_with(&format!(".{e}")));
+    if has(&INSTALLERS) {
+        return Category::Installer;
+    }
+    if has(&ARCHIVES) {
+        return Category::Archive;
+    }
+    if has(&DOCUMENTS) {
+        return Category::Document;
+    }
+    match mime.split('/').next().unwrap_or("") {
+        "image" => Category::Image,
+        "video" => Category::Video,
+        "audio" => Category::Audio,
+        "text" => Category::Document,
+        _ if mime == "application/pdf"
+            || mime.starts_with("application/vnd.oasis.opendocument")
+            || mime.starts_with("application/vnd.openxmlformats-officedocument")
+            || mime == "application/msword" =>
+        {
+            Category::Document
+        }
+        _ => Category::Other,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,6 +279,34 @@ mod tests {
         assert_eq!(f.site().as_deref(), Some("objects.githubusercontent.com"));
         f.referrer_url = Some("https://github.com/a/b/releases".into());
         assert_eq!(f.site().as_deref(), Some("github.com"));
+    }
+
+    #[test]
+    fn categories() {
+        use Category::*;
+        for (mime, name, want) in [
+            ("application/pdf", "a.pdf", Document),
+            ("application/octet-stream", "a.docx", Document),
+            (
+                "application/vnd.oasis.opendocument.text",
+                "sem-ext",
+                Document,
+            ),
+            ("text/plain", "notas", Document),
+            ("image/png", "a.png", Image),
+            ("video/mp4", "a.mp4", Video),
+            ("audio/flac", "a.flac", Audio),
+            ("application/vnd.debian.binary-package", "a.deb", Installer),
+            ("application/octet-stream", "App.AppImage", Installer),
+            ("application/x-iso9660-image", "a.iso", Installer),
+            ("application/zstd", "pacote.pkg.tar.zst", Installer),
+            ("application/gzip", "src.tar.gz", Archive),
+            ("application/zip", "a.ZIP", Archive),
+            ("application/x-7z-compressed", "a.7z", Archive),
+            ("application/octet-stream", "blob", Other),
+        ] {
+            assert_eq!(category(mime, name), want, "{name}");
+        }
     }
 
     #[test]

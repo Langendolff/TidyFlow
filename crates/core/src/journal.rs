@@ -156,8 +156,10 @@ impl Journal {
         Ok(Journal { conn })
     }
 
+    /// Grava a ação e, na mesma transação, move o registro do arquivo na biblioteca.
     pub fn record(&self, rule: &str, done: &Done, size: u64) -> Result<i64> {
-        self.conn.execute(
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
             "INSERT INTO actions (ts, rule, kind, src, dst, size) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 now(),
@@ -168,7 +170,10 @@ impl Journal {
                 size as i64
             ],
         )?;
-        Ok(self.conn.last_insert_rowid())
+        let id = tx.last_insert_rowid();
+        crate::downloads::follow(&tx, done.kind, &done.src, done.dst.as_deref(), false)?;
+        tx.commit()?;
+        Ok(id)
     }
 
     pub fn record_error(&self, rule: &str, kind: Kind, src: &Path, error: &str) -> Result<i64> {
@@ -201,10 +206,17 @@ impl Journal {
 
     /// `marked`: a marca xattr foi gravada (undone = 1); senão undone = 2 e o journal é o fallback.
     pub fn mark_undone(&self, id: i64, marked: bool) -> Result<()> {
-        self.conn.execute(
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
             "UPDATE actions SET undone = ?2 WHERE id = ?1",
             params![id, if marked { 1 } else { 2 }],
         )?;
+        if let Some(e) = self.get(id)?
+            && e.error.is_none()
+        {
+            crate::downloads::follow(&tx, e.kind, &e.src, e.dst.as_deref(), true)?;
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -322,7 +334,8 @@ impl Journal {
     /// Marca `gone` nas ações cujo arquivo não está mais onde a ação o deixou
     /// (no destino; na origem, se desfeita): apagado, movido, lixeira esvaziada,
     /// ou substituído pelo de uma ação mais nova no mesmo caminho.
-    /// Devolve quantas foram marcadas.
+    /// Também marca na biblioteca os arquivos que sumiram do caminho atual.
+    /// Devolve quantas ações foram marcadas.
     pub fn sweep_gone(&self) -> Result<usize> {
         let mut stmt = self.conn.prepare(
             "SELECT id, src, dst, undone FROM actions WHERE gone = 0 AND error IS NULL \
@@ -354,6 +367,7 @@ impl Journal {
             tx.execute("UPDATE actions SET gone = 1 WHERE id = ?1", [id])?;
         }
         tx.commit()?;
+        self.sweep_gone_downloads()?;
         Ok(gone.len())
     }
 

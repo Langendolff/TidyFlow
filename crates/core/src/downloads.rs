@@ -3,9 +3,11 @@
 
 use crate::{
     Result,
+    actions::Kind,
+    facts::Facts,
     journal::{Journal, bytes, path},
 };
-use rusqlite::{OptionalExtension, Row, params, types::Type};
+use rusqlite::{Connection, OptionalExtension, Row, params, types::Type};
 use std::{
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
@@ -125,6 +127,43 @@ pub const STALE_SECS: u64 = 24 * 3600;
 
 fn secs(t: SystemTime) -> i64 {
     t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64
+}
+
+/// Acompanha uma ação do engine no registro mais recente do arquivo: move e rename
+/// mudam o caminho atual, lixeira muda o estado. `undo` faz o caminho inverso.
+pub(crate) fn follow(
+    conn: &Connection,
+    kind: Kind,
+    src: &Path,
+    dst: Option<&Path>,
+    undo: bool,
+) -> rusqlite::Result<()> {
+    let latest = "(SELECT id FROM downloads WHERE current_path = ?1 ORDER BY id DESC LIMIT 1)";
+    match (kind, dst) {
+        (Kind::Move | Kind::Rename, Some(dst)) => {
+            let (from, to) = if undo { (dst, src) } else { (src, dst) };
+            conn.execute(
+                &format!(
+                    "UPDATE downloads SET current_path = ?2 WHERE id = {latest} AND state = 'complete'"
+                ),
+                params![bytes(from), bytes(to)],
+            )?;
+        }
+        (Kind::Trash, _) => {
+            let (from, to) = if undo {
+                ("trashed", "complete")
+            } else {
+                ("complete", "trashed")
+            };
+            conn.execute(
+                &format!("UPDATE downloads SET state = ?2 WHERE id = {latest} AND state = ?3"),
+                params![bytes(src), to, from],
+            )?;
+        }
+        // Copiar não muda onde o original está.
+        _ => {}
+    }
+    Ok(())
 }
 
 fn download(r: &Row) -> rusqlite::Result<Download> {
@@ -286,6 +325,70 @@ impl Journal {
             params![bytes(path), secs(since)],
             |r| r.get(0),
         )?)
+    }
+
+    /// Registro do arquivo para a biblioteca. Arquivos que chegam numa pasta monitorada
+    /// sem a extensão (Chromium sem ela, `wget`, cópia manual) ganham uma linha
+    /// `source = 'folder'`. Devolve o id.
+    pub fn ensure_download(&self, f: &Facts) -> Result<i64> {
+        if let Some(d) = f
+            .download_id
+            .map(|id| self.download(id))
+            .transpose()?
+            .flatten()
+        {
+            if d.current_path != f.path {
+                // movido à mão para cá: o xattr acompanha o arquivo
+                self.conn.execute(
+                    "UPDATE downloads SET current_path = ?2, state = 'complete' WHERE id = ?1",
+                    params![d.id, bytes(&f.path)],
+                )?;
+            }
+            return Ok(d.id);
+        }
+        if let Some(d) = self.download_at(&f.path)?
+            && matches!(d.state, DownloadState::Complete | DownloadState::InProgress)
+        {
+            return Ok(d.id);
+        }
+        let mtime = secs(f.modified);
+        self.conn.execute(
+            "INSERT INTO downloads (source, path, current_path, url, referrer, mime, size, \
+             state, started_at, finished_at) VALUES (?1, ?2, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
+            params![
+                Source::Folder.as_str(),
+                bytes(&f.path),
+                f.origin_url,
+                f.referrer_url,
+                f.mime,
+                f.size as i64,
+                DownloadState::Complete.as_str(),
+                mtime
+            ],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Marca `gone` nos registros cujo arquivo não está mais no caminho atual. Os em
+    /// andamento só depois de [`STALE_SECS`]; os da lixeira não são tocados.
+    pub(crate) fn sweep_gone_downloads(&self) -> Result<usize> {
+        let stale = crate::journal::now() - STALE_SECS as i64;
+        let mut stmt = self.conn.prepare(
+            "SELECT id, current_path FROM downloads WHERE state = 'complete' \
+             OR (state = 'in_progress' AND started_at < ?1)",
+        )?;
+        let gone: Vec<i64> = stmt
+            .query_map([stale], |r| Ok((r.get::<_, i64>(0)?, path(r.get(1)?))))?
+            .filter_map(|r| r.ok())
+            .filter(|(_, p)| std::fs::symlink_metadata(p).is_err())
+            .map(|(id, _)| id)
+            .collect();
+        let tx = self.conn.unchecked_transaction()?;
+        for id in &gone {
+            tx.execute("UPDATE downloads SET state = 'gone' WHERE id = ?1", [id])?;
+        }
+        tx.commit()?;
+        Ok(gone.len())
     }
 
     /// Registro mais recente do arquivo que está (ou estava) neste caminho.
